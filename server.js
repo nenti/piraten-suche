@@ -119,14 +119,21 @@ const MTYPES = {
   schleicher: { hp: 5,  r: 1.0 },
   flatterer:  { hp: 4,  r: 0.9 },
   brocken:    { hp: 10, r: 1.8 },     // groß, stark, hartnäckig
+  oktopus:    { hp: 6,  r: 1.4, sea: true },   // Level 3: lebt im Meer
+  kannibale:  { hp: 6,  r: 1.0 },     // Level 3: bewacht die Königsinsel
+  koenig:     { hp: 24, r: 2.6 },     // Level 3: Boss auf der Königsinsel
 };
 const rnd = (a, b) => a + Math.random() * (b - a);
 
+// letzte Insel = große Königsinsel (Level 3)
 const islands = [
-  { x: 1500, y: 40, w: 240, h: 130 },
-  { x: 2700, y: 70, w: 220, h: 150 },
-  { x: 820,  y: 30, w: 180, h: 100 },
+  { x: 1500, y: 40,  w: 240, h: 130 },
+  { x: 2700, y: 70,  w: 220, h: 150 },
+  { x: 820,  y: 30,  w: 180, h: 100 },
+  { x: 1850, y: 18,  w: 520, h: 210, king: true },
 ];
+const BIGISLAND = islands[3];
+const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
 const houses = [
   { x: 760, y: 460, w: 130, h: 100 },
   { x: 1250, y: 600, w: 130, h: 100 },
@@ -198,23 +205,29 @@ const world = {
   bushes: [],
   pickups: [],                                     // gedroppte Schippen
   planes: [],                                      // Flugzeuge (ab Level 2)
+  subs: [],                                        // U-Boote (ab Level 3)
   won: false,
   level: 1,
+  kingDown: 0,                                     // >0: König besiegt (Banner-Timer)
 };
 for (let i = 0; i < 10; i++)
   world.bushes.push({ x: rnd(500, WORLD_W-200), y: rnd(SAND_BOT+60, WORLD_H-70), ripe: true, regrow: 0 });
 for (let i = 0; i < 9; i++) spawnMonster();
 
-function spawnMonster() {
-  // Level 2: mehr & gemeinere Mischung, inkl. großer Brocken
-  const pool = world.level >= 2
-    ? ["schleicher","flatterer","brocken","brocken","flatterer"]
-    : ["schleicher","flatterer","schleicher"];
-  const type = pool[Math.floor(Math.random()*pool.length)];
+function spawnMonster(type, x, y) {
+  if (!type) {
+    const pool = world.level >= 2
+      ? ["schleicher","flatterer","brocken","brocken","flatterer"]
+      : ["schleicher","flatterer","schleicher"];
+    type = pool[Math.floor(Math.random()*pool.length)];
+  }
   const m = MTYPES[type];
+  if (x == null) {
+    if (m.sea) { x = rnd(200, WORLD_W-200); y = rnd(40, SEA_BOT-30); }
+    else { x = rnd(1400, WORLD_W-200); y = rnd(SAND_BOT+90, WORLD_H-90); }
+  }
   world.monsters.push({
-    x: rnd(1400, WORLD_W-200), y: rnd(SAND_BOT+90, WORLD_H-90),
-    vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r,
+    x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
     flee: 0, mad: 0, pop: 0, wob: Math.random()*7,
   });
 }
@@ -227,11 +240,11 @@ function onConnect(c) {
     id, name: "Pirat " + id.slice(1),
     x: 700, y: 420, dir: 1, color: pickColor(),
     hearts: 3, coins: 0, shovels: 5, shovelLvl: 1, gun: false, gunCd: 0,
-    boat: null, car: null, plane: null, horse: null, mounted: false, down: 0, inv: 0,
+    boat: null, car: null, plane: null, sub: null, horse: null, mounted: false, down: 0, inv: 0,
     in: { dx: 0, dy: 0, act: false }, lastAct: false,
   };
   send(c, { t: "init", id, W: WORLD_W, H: WORLD_H,
-            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH } });
+            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH, harbor: HARBOR } });
 }
 const COLORS = ["#e8413a","#3a78e8","#2fae5f","#e0a82e","#9b59b6","#e91e8c"];
 function pickColor() {
@@ -294,6 +307,11 @@ function doAction(p) {
     p.plane.driver = null; p.plane = null; p.x = s.x; p.y = s.y;
     return;
   }
+  if (p.sub) {                                   // U-Boot verlassen -> an Land daneben
+    const s = landNear(p.x, p.y);
+    p.sub.driver = null; p.sub = null; p.x = s.x; p.y = s.y;
+    return;
+  }
   if (p.mounted) {                               // vom Pferd absteigen (überall)
     const s = landNear(p.x, p.y);
     p.mounted = false; p.horse.x = p.x; p.horse.y = p.y;
@@ -320,6 +338,10 @@ function doAction(p) {
     if (!pl.driver && Math.hypot(pl.x-p.x, pl.y-p.y) < 100) {
       pl.driver = p; p.plane = pl; p.x = pl.x; p.y = pl.y; return;
     }
+  for (const su of world.subs)                    // U-Boot einsteigen
+    if (!su.driver && Math.hypot(su.x-p.x, su.y-p.y) < 100) {
+      su.driver = p; p.sub = su; p.x = su.x; p.y = su.y; return;
+    }
   if (nearShop(p.x, p.y)) return;                  // Shop läuft über das Menü (buy)
   if (nearRanch(p.x, p.y)) return;                 // Ranch läuft über das Menü (ranch)
   // Eiswagen: Eis fuer Muenzen -> heilen
@@ -343,13 +365,21 @@ function doAction(p) {
   }
 }
 function winSequence() {
-  const toLevel2 = world.level === 1;
+  const next = world.level + 1;
   setTimeout(() => {
-    if (toLevel2) {
+    if (next === 2) {
       world.level = 2;
       for (let i = 0; i < 3; i++)                  // Flugzeuge am Flugplatz
         world.planes.push({ x: AIRPORT.x + 70 + i*150, y: AIRPORT.y + AIRPORT.h/2, dir: 1, driver: null, cd: 0 });
       for (let i = 0; i < 6; i++) spawnMonster();   // Level 2: mehr & crazier
+    } else if (next === 3) {
+      world.level = 3;
+      for (let i = 0; i < 3; i++)                  // U-Boote im Hafen
+        world.subs.push({ x: HARBOR.x + 50 + i*70, y: HARBOR.y + HARBOR.h/2, dir: 1, driver: null, cd: 0 });
+      for (let i = 0; i < 7; i++) spawnMonster("oktopus");          // Oktopusse im Meer
+      for (let i = 0; i < 6; i++)                                   // Kannibalen auf der Königsinsel
+        spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
+      spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);  // König-Boss
     }
     world.treasures = freshTreasures();
     world.won = false;
@@ -377,7 +407,7 @@ function tick() {
     const dx = p.in.dx, dy = p.in.dy;
     if (dx || dy) {
       const l = Math.hypot(dx, dy) || 1;
-      const sp = p.plane ? 9.5 : p.car ? 7.4 : p.mounted ? 6.6 : p.boat ? 5.8 : 4.7;
+      const sp = p.plane ? 9.5 : p.car ? 7.4 : p.sub ? 7.0 : p.mounted ? 6.6 : p.boat ? 5.8 : 4.7;
       let nx = p.x + dx/l*sp, ny = p.y + dy/l*sp;
       if (dx) p.dir = dx > 0 ? 1 : -1;
       if (p.plane) {                               // fliegt frei über alles
@@ -392,6 +422,10 @@ function tick() {
         nx = Math.max(20, Math.min(WORLD_W-20, nx));
         ny = Math.max(16, Math.min(SEA_BOT-6, ny));
         p.x = nx; p.y = ny; p.boat.x = nx; p.boat.y = ny;
+      } else if (p.sub) {                            // U-Boot: nur im Meer, schnell
+        nx = Math.max(20, Math.min(WORLD_W-20, nx));
+        ny = Math.max(16, Math.min(SEA_BOT-6, ny));
+        p.x = nx; p.y = ny; p.sub.x = nx; p.sub.y = ny; if (dx) p.sub.dir = p.dir;
       } else if (p.car) {
         if (onRoad(nx, p.y)) p.x = nx;
         if (onRoad(p.x, ny)) p.y = ny;
@@ -401,7 +435,7 @@ function tick() {
         if (!blockedFoot(p.x, ny)) p.y = ny;
       }
     }
-    if (!p.boat && !p.car && !p.plane && isWater(p.x, p.y)) { const s = landNear(p.x, p.y); p.x = s.x; p.y = s.y; }
+    if (!p.boat && !p.car && !p.plane && !p.sub && isWater(p.x, p.y)) { const s = landNear(p.x, p.y); p.x = s.x; p.y = s.y; }
     if (p.horse && !p.mounted && isWater(p.horse.x, p.horse.y)) { const s = landNear(p.horse.x, p.horse.y); p.horse.x = s.x; p.horse.y = s.y; }
     if (edge) doAction(p);
     // Knarre: verteidigt automatisch zu Fuß (kein Zielen nötig)
@@ -431,6 +465,17 @@ function tick() {
       if (world.bolts.length > before) pl.cd = 10;  // ~0.5 s
     }
   }
+
+  // U-Boot schießt automatisch auf Oktopusse/Monster
+  for (const su of world.subs) {
+    if (su.cd > 0) su.cd--;
+    if (su.driver && su.cd <= 0) {
+      const before = world.bolts.length;
+      fireBolt(su.driver, 360);
+      if (world.bolts.length > before) su.cd = 12;
+    }
+  }
+  if (world.kingDown > 0) world.kingDown--;
 
   // Boote/Autos folgen ihren Fahrern (oben gesetzt); freie bleiben stehen.
   // "Boot kommt zu dir": stehen alle Boote weit weg und ein Spieler ist an
@@ -466,25 +511,35 @@ function tick() {
     } else {
       let tgt = null, td = 1e9;
       for (const p of Object.values(world.players)) {
-        if (p.boat || p.car || p.plane || p.mounted || p.inv > 0 || p.down > 0) continue;
+        if (p.inv > 0 || p.down > 0) continue;
+        if (a.sea) {                                  // Oktopus: jagt Spieler im/am Wasser
+          if (!(p.boat || p.sub || p.y < SEA_BOT + 50)) continue;
+        } else {                                      // Landmonster: keine Fahrzeuge
+          if (p.boat || p.car || p.plane || p.mounted || p.sub) continue;
+        }
         const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
       }
       // aggressiv: große Reichweite, halten hartnäckig drauf
-      const range = a.type === "flatterer" ? 360 : a.type === "brocken" ? 420 : 320;
+      const RNG = { flatterer:360, brocken:420, oktopus:300, kannibale:340, koenig:420 };
+      const ACC = { flatterer:.34, brocken:.26, oktopus:.24, kannibale:.30, koenig:.18 };
+      const MX  = { flatterer:3.2, brocken:2.3, oktopus:2.4, kannibale:2.7, koenig:1.5 };
+      const range = RNG[a.type] || 320;
       if (tgt && td < range) {
         a.mad = Math.min(1, a.mad + .05);
-        const acc = a.type === "flatterer" ? .34 : a.type === "brocken" ? .26 : .28;
+        const acc = ACC[a.type] || .28;
         a.vx += (tgt.x-a.x)/td*acc; a.vy += (tgt.y-a.y)/td*acc;
         if (td < 26*a.r) {
           tgt.hearts--; tgt.inv = 120;
-          const kb = a.type === "brocken" ? 40 : 22;
-          const k = Math.hypot(tgt.x-a.x, tgt.y-a.y)||1;
-          tgt.x = Math.max(16, Math.min(WORLD_W-16, tgt.x+(tgt.x-a.x)/k*kb));
-          tgt.y = Math.max(SEA_BOT+8, Math.min(WORLD_H-12, tgt.y+(tgt.y-a.y)/k*kb));
+          if (!tgt.boat && !tgt.sub) {                // im Boot/U-Boot: nur Schaden, kein Wegschleudern
+            const kb = (a.type === "brocken" || a.type === "koenig") ? 40 : 22;
+            const k = Math.hypot(tgt.x-a.x, tgt.y-a.y)||1;
+            tgt.x = Math.max(16, Math.min(WORLD_W-16, tgt.x+(tgt.x-a.x)/k*kb));
+            tgt.y = Math.max(SEA_BOT+8, Math.min(WORLD_H-12, tgt.y+(tgt.y-a.y)/k*kb));
+          }
           if (tgt.hearts <= 0) { tgt.hearts = 0; tgt.down = 240; }
-          a.flee = a.type === "brocken" ? 8 : 20;     // kommt sofort wieder
+          a.flee = (a.type === "brocken" || a.type === "koenig") ? 8 : 20;
         }
-        mx = a.type === "flatterer" ? 3.2 : a.type === "brocken" ? 2.3 : 2.6;
+        mx = MX[a.type] || 2.6;
       } else {
         a.mad = Math.max(0, a.mad - .02);
         if (Math.random() < .02) { a.vx = rnd(-.6,.6); a.vy = rnd(-.6,.6); }
@@ -494,8 +549,13 @@ function tick() {
     const sp = Math.hypot(a.vx, a.vy);
     if (sp > mx) { a.vx = a.vx/sp*mx; a.vy = a.vy/sp*mx; }
     let nx = a.x+a.vx, ny = a.y+a.vy;
-    if (ny < SAND_BOT+12) { ny = SAND_BOT+12; a.vy *= -1; }
-    if (ny > WORLD_H-14) { ny = WORLD_H-14; a.vy *= -1; }
+    if (a.sea) {                                      // Oktopus bleibt im Wasser
+      if (ny < 20) { ny = 20; a.vy *= -1; }
+      if (ny > SEA_BOT-12) { ny = SEA_BOT-12; a.vy *= -1; }
+    } else {
+      if (ny < SAND_BOT+12) { ny = SAND_BOT+12; a.vy *= -1; }
+      if (ny > WORLD_H-14) { ny = WORLD_H-14; a.vy *= -1; }
+    }
     if (nx < 14 || nx > WORLD_W-14) a.vx *= -1;
     a.x = Math.max(14, Math.min(WORLD_W-14, nx)); a.y = ny;
     if (a.pop > 0) a.pop--;
@@ -514,12 +574,32 @@ function tick() {
         // wird angeschossen, kommt aber gleich wieder (aggressiv)
         a.flee = a.type === "brocken" ? 0 : 14;
         a.vx = (a.x-b.x)/k*2.0; a.vy = (a.y-b.y)/k*2.0;
-        if (a.hp <= 0) {                              // kaputt -> droppt Schippen
-          const n = 1 + (Math.random() < 0.5 ? 1 : 0);
-          for (let s = 0; s < n; s++)
-            world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800 });
-          world.monsters.splice(j, 1);
-          setTimeout(spawnMonster, 4000);
+        if (a.hp <= 0) {
+          const at = a.type;
+          if (at === "koenig") {                      // Boss besiegt: Insel erobert!
+            world.kingDown = 600;
+            for (const pp of Object.values(world.players)) pp.coins += 25;
+            world.monsters.splice(j, 1);
+          } else if (a.sea) {                         // Oktopus -> Münzen (im Meer)
+            let np = null, nd = 1e9;
+            for (const pp of Object.values(world.players)) {
+              const dd = Math.hypot(pp.x-a.x, pp.y-a.y); if (dd < nd) { nd = dd; np = pp; }
+            }
+            if (np) np.coins += 4;
+            world.monsters.splice(j, 1);
+            setTimeout(() => spawnMonster("oktopus"), 5000);
+          } else {                                    // Landmonster -> Schippen droppen
+            const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+            for (let s = 0; s < n; s++)
+              world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800 });
+            world.monsters.splice(j, 1);
+            // Kannibalen nur nachspawnen, solange der König lebt
+            if (!(at === "kannibale" && world.kingDown > 0))
+              setTimeout(() => spawnMonster(
+                at === "kannibale" ? "kannibale" : undefined,
+                at === "kannibale" ? BIGISLAND.x + rnd(40, BIGISLAND.w-40) : undefined,
+                at === "kannibale" ? BIGISLAND.y + rnd(40, BIGISLAND.h-30) : undefined), 4000);
+          }
         }
         break;
       }
@@ -559,13 +639,14 @@ function broadcast() {
     players: Object.values(world.players).map(p => ({
       id: p.id, n: p.name, x: Math.round(p.x), y: Math.round(p.y),
       d: p.dir, c: p.color, h: p.hearts, co: p.coins, sh: p.shovels,
-      sl: p.shovelLvl, gn: p.gun, bo: !!p.boat, ca: !!p.car, pn: !!p.plane,
+      sl: p.shovelLvl, gn: p.gun, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
       mo: p.mounted,
       ho: p.horse ? { x: Math.round(p.horse.x), y: Math.round(p.horse.y), d: p.horse.dir } : null,
       dn: p.down > 0, iv: p.inv > 0,
     })),
-    won: world.won, goal: WIN_GOAL, level: world.level,
+    won: world.won, goal: WIN_GOAL, level: world.level, kingDown: world.kingDown > 0,
     pl: world.planes.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), d: p.dir, dr: !!p.driver })),
+    su: world.subs.map(s => ({ x: Math.round(s.x), y: Math.round(s.y), d: s.dir, dr: !!s.driver })),
     tr: world.treasures.map(t => ({ x: t.x, y: t.y, f: t.found, cv: !!t.cave })),
     bo: world.boats.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), dr: !!b.driver })),
     ca: world.cars.map(c => ({ x: Math.round(c.x), y: Math.round(c.y), d: c.dir, dr: !!c.driver })),

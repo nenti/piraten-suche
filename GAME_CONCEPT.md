@@ -1,56 +1,54 @@
-# Piraten-Suche 🏴‍☠️
+# Piraten-Suche 🏴‍☠️ — Spielkonzept
 
-Ein Spiel von Yannick und Papa.
+Ein Spiel von Yannick/Janik, Micky & Papa. Das Konzept ist beim gemeinsamen
+Spielen gewachsen — von „freundliche Schatzsuche" zu einem Online-Koop-Spiel
+mit Levels. Diese Datei beschreibt den **aktuellen Stand**.
 
 ## Worum geht es?
 
-Man läuft in einer kleinen Welt **am Meer** herum und **sucht versteckte Goldschätze**.
-Es ist ein bisschen wie Verstecken spielen — nur dass man Schätze sucht statt Personen.
+Man läuft in einer Welt **am Meer** herum (2D von oben) und **sucht versteckte
+Goldschätze** — allein, zu zweit an einem Gerät, oder online zusammen
+(Browser/Handy, alle im selben Spiel).
 
-## So spielt man
+## Kern
 
-- Man läuft mit einer Spielfigur durch die Welt (von oben gesehen, 2D).
-- Überall sind **Schätze versteckt** — hinter Bäumen, neben Häusern, beim Boot, unter Büchern.
-- Man muss alle Schätze finden, dann hat man gewonnen.
-- Wenn man nah an einem Versteck ist, gibt es vielleicht einen kleinen Hinweis ("wärmer / kälter" oder ein Funkeln).
+- Schätze liegen an **zufälligen Orten**; man braucht **6 von ~8** zum Sieg.
+- **Graben kostet Schippen** (begrenzt). Schippen kommen aus Monster-Drops
+  oder dem Shop; Überschuss tauscht man an der Ranch in Münzen/ein Pferd.
+- **Münzen** aus Schätzen/Oktopussen → Shop (Schippe/Knarre), Eiswagen (Heilung).
+- **Kein hartes Verlieren:** Herzen gehen runter und wieder rauf
+  (Beeren/Eiswagen). Wer „unten" ist, wird von einem Mitspieler wiederbelebt.
+- **Geist** als Tamagotchi: schwebt langsam hinterher und gibt Tipps.
 
-## Allein **und** zusammen
+## Fahrzeuge
 
-- **Allein:** Man sucht selbst alle Schätze.
-- **Zusammen (Couch-Koop):** Zwei Spieler an einem Computer, jeder mit einer eigenen Figur, und man sucht gemeinsam. Wer mehr findet, hilft dem anderen.
+Boot ⛵ (Meer, kommt zu dir), Auto 🚗 (Straße, auto-schießt),
+Flugzeug ✈️ (Level 2, fliegt überall), U-Boot ⚓ (Level 3, Meer),
+Pferd 🐴 (Ranch, Spielerfarbe). Ein-/Aussteigen mit der Aktionstaste, überall.
 
-## Die Welt
+## Monster
 
-- Es ist **draußen am Meer**.
-- Es gibt:
-  - 🌳 Bäume
-  - 🏠 Häuser (man kann auch außen herum suchen)
-  - 📚 Bücher (liegen herum, darunter kann ein Schatz sein)
-  - ⛵ ein Boot
-  - 🌊 das Meer / Wasser
-  - 💰 versteckte Goldschätze (das Ziel!)
-- **Keine bösen Tiere, nichts Gruseliges.** Das Spiel soll nett und freundlich sein.
+Cartoon-gruselig, aggressiv, aber nicht angsteinflößend (für kleine
+Zuschauer ok). Arten: Schleicher, Flatterer, großer **Brocken**;
+Level 3: **Oktopus** (Meer), **Kannibale** + **König-Boss** (Königsinsel).
+Auto/Knarre/U-Boot verteidigen automatisch.
 
-## Steuerung (Idee)
+## Levels
 
-- Spieler 1: Pfeiltasten zum Laufen, eine Taste zum "Graben/Suchen".
-- Spieler 2: WASD zum Laufen, eine Taste zum "Graben/Suchen".
+1. Schatzsuche-Grundspiel.
+2. **Flugplatz** + Flugzeuge, mehr/aggressivere Monster, Ranch.
+3. **U-Boot-Hafen**, Oktopusse, **Königsinsel** mit Kannibalen + König-Boss
+   (besiegen = Insel erobert, Münz-Belohnung). Danach endlos.
 
-## Ziel des Spiels
+## Technik
 
-Alle Goldschätze finden. Wenn alle gefunden sind: **Gewonnen!** 🎉
-Vielleicht zeigt das Spiel an, wie viele Schätze man schon hat (z. B. "3 von 7 Schätzen gefunden").
+HTML5-Canvas-Client + dependency-freier Node-Server (autoritativ, WebSocket).
+Couch-Koop **und** Netzwerk. Steuerung: Pfeiltasten/WASD + Leertaste/Enter,
+auf dem Handy Joystick + Aktionsknopf.
 
-## Technik (Vorschlag für die Entwicklung)
+## Hinweis zur Entwicklung
 
-- Einfach und schnell: ein **HTML5-Canvas-Spiel** mit JavaScript, das direkt im Browser läuft.
-- Kein kompliziertes Setup, keine Online-Server — alles lokal.
-- Couch-Koop über die Tastatur (zwei Spieler an einem Gerät).
-
-## Was als Nächstes kommt
-
-1. Spielfeld zeichnen (Meer, Strand, Bäume, Häuser, Boot).
-2. Spielfigur, die man bewegen kann.
-3. Schätze verstecken + Suchen/Finden einbauen.
-4. Zähler "X von Y Schätzen gefunden" + Gewinn-Bildschirm.
-5. Zweiten Spieler dazu (Couch-Koop).
+Das ursprüngliche Konzept war bewusst „nichts Gruseliges, ganz freundlich".
+Im gemeinsamen Spielen wollten die Kinder es spannender (Tiere, Schießen,
+Levels) — umgesetzt **cartoonhaft & ohne hartes Sterben**, damit es für alle
+inkl. der Kleinen passt. Weitere/zurückgestellte Ideen: siehe ROADMAP.md.

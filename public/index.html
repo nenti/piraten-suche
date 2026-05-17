@@ -79,7 +79,7 @@ const isTouch = matchMedia("(pointer:coarse)").matches || "ontouchstart" in wind
 if (isTouch) document.querySelectorAll(".touch-only").forEach(e=>e.style.display="block");
 
 let ws, myId = null, W = 3600, H = 1100, statics = null;
-const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], bu:[], pk:[], pl:[], tk:{x:0,y:0}, won:false, goal:6, level:1 };
+const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], bu:[], pk:[], pl:[], su:[], tk:{x:0,y:0}, won:false, goal:6, level:1, kingDown:false };
 let snap = EMPTY, prevSnap = EMPTY, snapAt = 0;
 const SNAP_MS = 50;                       // Server tickt mit 20 Hz
 const input = { dx:0, dy:0, act:false };
@@ -191,7 +191,8 @@ function updateTip(me){
     me.sh<=1                    ? "Wenig Schippen – Monster droppen neue 🛠️" :
     (!me.ho && me.sh>=12)       ? "So viele Schippen! Auf der Ranch 🐴 ein Pferd holen" :
     (snap.level||1) < 2         ? "Folg dem Pfeil zu den Schätzen! 🔎" :
-                                  "Level 2! Schnapp dir ein Flugzeug ✈️";
+    (snap.level||1) < 3         ? "Level 2! Schnapp dir ein Flugzeug ✈️" :
+                                  "Level 3! U-Boot ⚓ nehmen & König 👑 besiegen";
 }
 function interp(){
   const f = Math.min(1, (performance.now()-snapAt)/SNAP_MS);
@@ -263,12 +264,21 @@ function draw(){
       ctx.stroke();
       ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("🐴 Ranch (Schippen)",rn.x-4,rn.y-10);
     }
+    if(statics.harbor && snap.level>=3){
+      const hb=statics.harbor;
+      ctx.fillStyle="#6b5638";rr(hb.x,hb.y,hb.w,hb.h,6);
+      ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("⚓ U-Boot-Hafen",hb.x-2,hb.y-8);
+    }
     for(const is of statics.islands){
       ctx.fillStyle="#e7d49b";rr(is.x,is.y,is.w,is.h,40);
       ctx.fillStyle="#3a8a55";rr(is.x+30,is.y+18,is.w-60,is.h-42,28);
       const cx=is.x+is.w/2,cy=is.y+is.h*.42;
       ctx.fillStyle="#6b3f1d";ctx.fillRect(cx-4,cy,8,38);
       ctx.fillStyle="#2f7a3e";for(const o of[[-20,0],[20,0],[0,-15],[-13,-11],[13,-11]]){ctx.beginPath();ctx.ellipse(cx+o[0],cy+o[1],15,8,0,0,7);ctx.fill();}
+      if(is.king){
+        ctx.fillStyle="#ffd34d";ctx.font="bold 18px Comic Sans MS";ctx.textAlign="center";
+        ctx.fillText("👑 Königsinsel",is.x+is.w/2,is.y-12);ctx.textAlign="left";
+      }
     }
     const cv2=statics.cave;
     ctx.fillStyle="#54504a";rr(cv2.x-8,cv2.y-8,cv2.w+16,cv2.h+16,24);
@@ -340,6 +350,16 @@ function draw(){
     ctx.fillStyle="#bfe0ff";ctx.beginPath();ctx.arc(20,-2,5,0,7);ctx.fill();
     ctx.restore();
   }
+  // U-Boote
+  for(const su of snap.su){
+    ctx.save();ctx.translate(su.x,su.y);ctx.scale(su.d>0?1:-1,1);
+    ctx.fillStyle="#3d4f63";ctx.beginPath();ctx.ellipse(0,0,34,15,0,0,7);ctx.fill();
+    ctx.fillStyle="#2c3a49";rr(-6,-26,14,16,4);
+    ctx.fillStyle="#2c3a49";ctx.fillRect(34,-3,12,6);
+    ctx.fillStyle="#bfe0ff";ctx.beginPath();ctx.arc(8,-2,5,0,7);ctx.fill();
+    ctx.fillStyle="rgba(255,255,255,.5)";ctx.beginPath();ctx.arc(-14,-4,3,0,7);ctx.arc(-22,2,2,0,7);ctx.fill();
+    ctx.restore();
+  }
   // Schüsse
   for(const b of snap.bl){ctx.fillStyle="#ffe24d";ctx.beginPath();ctx.arc(b.x,b.y,4,0,7);ctx.fill();}
   // Monster
@@ -353,6 +373,25 @@ function draw(){
       ctx.fillStyle="rgba(180,150,210,.6)";
       ctx.beginPath();ctx.ellipse(a.x-14,a.y+wob,9,5,Math.sin(t*.4)*.6,0,7);ctx.fill();
       ctx.beginPath();ctx.ellipse(a.x+14,a.y+wob,9,5,-Math.sin(t*.4)*.6,0,7);ctx.fill();
+    } else if(a.tp==="oktopus"){
+      ctx.fillStyle=a.md>.4?"#9b3b6b":"#7a4a9c";
+      for(let i=-3;i<=3;i++){ctx.beginPath();ctx.moveTo(a.x,a.y+4);
+        ctx.quadraticCurveTo(a.x+i*9,a.y+16+Math.sin(t*.3+i)*4,a.x+i*7,a.y+24+Math.sin(t*.3+i)*5);
+        ctx.lineWidth=5;ctx.strokeStyle=a.md>.4?"#9b3b6b":"#7a4a9c";ctx.stroke();}
+      ctx.beginPath();ctx.ellipse(a.x,a.y-4+wob,17,16,0,0,7);ctx.fill();
+    } else if(a.tp==="koenig"){
+      ctx.fillStyle=a.md>.4?"#7a1f1f":"#5a3a8f";
+      ctx.beginPath();ctx.ellipse(a.x,a.y+wob,34,30,0,0,7);ctx.fill();
+      ctx.fillStyle="#ffd34d";                       // Krone
+      ctx.beginPath();ctx.moveTo(a.x-26,a.y-26+wob);
+      for(let i=-2;i<=2;i++)ctx.lineTo(a.x+i*13,a.y-(i%2?52:40)+wob);
+      ctx.lineTo(a.x+26,a.y-26+wob);ctx.closePath();ctx.fill();
+    } else if(a.tp==="kannibale"){
+      ctx.fillStyle=a.md>.4?"#7a4a2a":"#6a5a3a";
+      ctx.beginPath();ctx.ellipse(a.x,a.y+wob,15,14,0,0,7);ctx.fill();
+      ctx.strokeStyle="#3a2a1a";ctx.lineWidth=4;
+      ctx.beginPath();ctx.moveTo(a.x+14,a.y-18+wob);ctx.lineTo(a.x+14,a.y+18+wob);ctx.stroke();
+      ctx.fillStyle="#cfcfcf";ctx.beginPath();ctx.moveTo(a.x+14,a.y-18+wob);ctx.lineTo(a.x+9,a.y-10+wob);ctx.lineTo(a.x+19,a.y-10+wob);ctx.fill();
     } else {
       ctx.fillStyle=a.md>.4?"#5a2740":"#6b4a63";
       ctx.beginPath();ctx.ellipse(a.x,a.y+wob,17,14,0,0,7);ctx.fill();
@@ -360,11 +399,13 @@ function draw(){
       for(let i=-2;i<=2;i++)ctx.lineTo(a.x+i*7,a.y-14+wob+(i%2?4:0));
       ctx.lineTo(a.x+15,a.y-4+wob);ctx.fill();
     }
-    ctx.fillStyle="#ffd13b";ctx.beginPath();ctx.arc(a.x-5,a.y-2+wob,3,0,7);ctx.arc(a.x+5,a.y-2+wob,3,0,7);ctx.fill();
-    ctx.fillStyle="#1a0e16";ctx.beginPath();ctx.arc(a.x-5,a.y-2+wob,1.3,0,7);ctx.arc(a.x+5,a.y-2+wob,1.3,0,7);ctx.fill();
+    const es=a.tp==="koenig"?2:1;
+    ctx.fillStyle="#ffd13b";ctx.beginPath();ctx.arc(a.x-5*es,a.y-2+wob,3*es,0,7);ctx.arc(a.x+5*es,a.y-2+wob,3*es,0,7);ctx.fill();
+    ctx.fillStyle="#1a0e16";ctx.beginPath();ctx.arc(a.x-5*es,a.y-2+wob,1.3*es,0,7);ctx.arc(a.x+5*es,a.y-2+wob,1.3*es,0,7);ctx.fill();
     // Lebensbalken
-    ctx.fillStyle="rgba(0,0,0,.4)";ctx.fillRect(a.x-16,a.y-30,32,5);
-    ctx.fillStyle="#e74c3c";ctx.fillRect(a.x-16,a.y-30,32*a.hp/a.mh,5);
+    const bw=a.tp==="koenig"?70:32;
+    ctx.fillStyle="rgba(0,0,0,.4)";ctx.fillRect(a.x-bw/2,a.y-(a.tp==="koenig"?58:30),bw,5);
+    ctx.fillStyle="#e74c3c";ctx.fillRect(a.x-bw/2,a.y-(a.tp==="koenig"?58:30),bw*a.hp/a.mh,5);
   }
   // Pferde (in Spielerfarbe)
   for(const p of IPL){
@@ -382,7 +423,7 @@ function draw(){
   }
   // Spieler
   for(const p of IPL){
-    if(p.bo||p.ca||p.pn) continue;
+    if(p.bo||p.ca||p.pn||p.su) continue;
     if(p.dn){ // am Boden
       ctx.fillStyle=p.c;rr(p.x-13,p.y+4,26,12,6);
       ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("💫",p.x-8,p.y-2);
@@ -466,7 +507,14 @@ function draw(){
       ctx.fillText("🎉 Geschafft! 🎉",VW/2,VH*0.32+34);
       ctx.font="16px Comic Sans MS";
       ctx.fillText(lvl<2 ? "✈️ Level 2 lädt … der Flugplatz öffnet!"
+                 : lvl<3 ? "🌊 Level 3 lädt … U-Boote, Oktopusse & Königsinsel!"
                          : "Neue Schätze kommen gleich …",VW/2,VH*0.32+60);
+      ctx.textAlign="left";
+    }
+    if(snap.kingDown){
+      ctx.fillStyle="rgba(150,110,20,.92)";rr(VW/2-240,VH*0.5,480,64,14);
+      ctx.fillStyle="#fff";ctx.font="bold 24px Comic Sans MS";ctx.textAlign="center";
+      ctx.fillText("👑 König besiegt! Insel erobert! +25🪙",VW/2,VH*0.5+40);
       ctx.textAlign="left";
     }
   }
