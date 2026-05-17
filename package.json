@@ -1,0 +1,9 @@
+{
+  "name": "piraten-suche",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online co-op pirate treasure hunt — authoritative Node server, dependency-free WebSocket.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piraten-Suche 🏴‍☠️</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #07151d;
+    font-family: "Comic Sans MS", "Trebuchet MS", system-ui, sans-serif;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #wrap { position: relative; }
+  canvas {
+    background: #2e6f4e;
+    border-radius: 10px;
+    box-shadow: 0 12px 50px rgba(0,0,0,.6);
+    display: block;
+  }
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: rgba(6, 22, 33, .85);
+    border-radius: 10px;
+  }
+  .overlay h1 { font-size: 46px; margin: 0 0 4px; text-shadow: 2px 2px 0 #000; }
+  .overlay p  { font-size: 18px; margin: 5px 0; max-width: 660px; line-height: 1.45; }
+  .overlay small { opacity: .82; }
+  button {
+    font: inherit; font-size: 21px; cursor: pointer;
+    margin: 9px; padding: 12px 26px;
+    border: none; border-radius: 10px;
+    background: #f4c542; color: #4a2f00;
+    box-shadow: 0 4px 0 #b8901f;
+  }
+  button:hover { background: #ffd75e; }
+  button:active { transform: translateY(3px); box-shadow: 0 1px 0 #b8901f; }
+  .ghost-btn { background:#2a5a72; color:#fff; box-shadow:0 4px 0 #173c4d; }
+  .ghost-btn:hover { background:#357a99; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="600"></canvas>
+
+  <div id="menu" class="overlay">
+    <h1>Piraten-Suche 🏴‍☠️</h1>
+    <p>Eine große Welt am Meer. Finde alle Goldschätze! Jeder Spieler hat eine
+       <b>Fackel</b> 🔥 und einen <b>Pfeil</b> zum nächsten Schatz.
+       Fahr mit dem <b>Boot</b> ⛵ zu den <b>Inseln</b> 🏝️, oder nimm das
+       <b>Auto</b> 🚗 auf der <b>Straße</b> — schnell, tiersicher und es
+       <b>schießt</b> 🔫 die <b>gruseligen Tiere</b> 👹 weg (Plopp!).
+       Werden sie dich los, iss eine <b>Beere</b> 🫐.</p>
+    <div>
+      <button data-players="1">1 Spieler</button>
+      <button data-players="2">2 Spieler (Couch-Koop)</button>
+    </div>
+    <button id="fs" class="ghost-btn">🖥️ Vollbild an/aus</button>
+    <p><small>
+      Spieler 1 (rot): Pfeiltasten · <b>Enter</b> = suchen / ein-aussteigen / essen / schießen &nbsp;|&nbsp;
+      Spieler 2 (blau): W A S D · <b>Leertaste</b> = suchen / ein-aussteigen / essen / schießen
+    </small></p>
+  </div>
+
+  <div id="win" class="overlay hidden">
+    <h1>Geschafft! 🎉</h1>
+    <p>Ihr habt <b>alle Schätze</b> gefunden! 💰💰💰</p>
+    <button id="again">Nochmal spielen</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById("game");
+const ctx = cv.getContext("2d");
+const VW = cv.width, VH = cv.height;          // sichtbarer Ausschnitt
+const WORLD_W = 3200, WORLD_H = 1000;         // große Welt
+
+// Wasser oben, dann Strand, dann Wiese — über die ganze Weltbreite
+const SEA_BOT = 260, SAND_BOT = 380;          // tieferes Meer zum Rumfahren
+// Straße (nur hier fährt das Auto) + Parkplatz beim Start
+const ROAD_Y = WORLD_H - 200, ROAD_H = 92;
+const PARK = { x: 560, y: ROAD_Y - 78, w: 150, h: 78 };
+function onRoad(x,y){
+  if (x<18||x>WORLD_W-18) return false;
+  if (y>ROAD_Y && y<ROAD_Y+ROAD_H) return true;
+  return x>PARK.x&&x<PARK.x+PARK.w&&y>PARK.y&&y<PARK.y+PARK.h;
+}
+function onPark(x,y){
+  return x>PARK.x&&x<PARK.x+PARK.w&&y>PARK.y&&y<PARK.y+PARK.h;
+}
+
+// ---- Vollbild / Skalierung ----
+function fit() {
+  const fsEl = document.fullscreenElement;
+  const aw = fsEl ? window.innerWidth  : Math.min(window.innerWidth,  VW);
+  const ah = fsEl ? window.innerHeight : Math.min(window.innerHeight, VH);
+  const s = Math.min(aw / VW, ah / VH);
+  cv.style.width  = (VW * s) + "px";
+  cv.style.height = (VH * s) + "px";
+}
+addEventListener("resize", fit);
+document.addEventListener("fullscreenchange", fit);
+fit();
+document.getElementById("fs").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.getElementById("wrap").requestFullscreen?.();
+});
+
+// ---- Tasten ----
+const keys = new Set(), pressedOnce = new Set();
+addEventListener("keydown", e => {
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  if (!keys.has(e.key)) pressedOnce.add(e.key);
+  keys.add(e.key);
+});
+addEventListener("keyup", e => keys.delete(e.key));
+
+// ---- Töne ----
+let actx = null;
+function beep(f, d, type = "sine", v = .15) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = v;
+    o.connect(g); g.connect(actx.destination); o.start();
+    g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + d);
+    o.stop(actx.currentTime + d);
+  } catch (_) {}
+}
+const sndFound = () => { beep(660,.12); setTimeout(()=>beep(990,.18),110); };
+const sndNope  = () => beep(150,.12,"triangle",.1);
+const sndBite  = () => { beep(120,.18,"sawtooth",.14); beep(90,.22,"sawtooth",.1); };
+const sndEat   = () => beep(520,.14,"sine",.12);
+const sndBoat  = () => beep(300,.2,"square",.08);
+const sndShoot = () => beep(760,.05,"square",.07);
+const sndPop   = () => beep(220,.12,"triangle",.1);
+
+// Auto schießt automatisch auf das nächste Tier (cartoonhaft, kein Töten)
+function fireBolt(p) {
+  let tgt=null, bd=1e9;
+  for (const a of animals){ const d=Math.hypot(a.x-p.x,a.y-p.y);
+    if (d<bd){bd=d;tgt=a;} }
+  if (!tgt || bd>540) { p.puff=1; return; }
+  const k=bd||1;
+  bolts.push({x:p.x, y:p.y-6,
+              vx:(tgt.x-p.x)/k*8, vy:(tgt.y-p.y)/k*8, life:80});
+  sndShoot();
+}
+
+// ---- Welt-Objekte ----
+let state = "menu", t = 0;
+let players = [], treasures = [], boats = [], cars = [], bolts = [],
+    animals = [], rabbits = [], bushes = [], deco = [], cave, islands = [], ghost;
+
+const rnd = (a,b) => a + Math.random()*(b-a);
+
+function buildWorld() {
+  cave   = { x: 120,  y: 620, w: 290, h: 250 };
+  islands = [                                      // mehrere Inseln zum Erkunden
+    { x: 1500, y: 40,  w: 230, h: 130 },
+    { x: 2550, y: 70,  w: 210, h: 140 },
+    { x: 760,  y: 30,  w: 170, h: 100 },
+  ];
+
+  const houses = [
+    {x:700,y:430,w:130,h:100}, {x:1150,y:560,w:130,h:100},
+    {x:2050,y:470,w:140,h:105}
+  ];
+  const trees = [
+    {x:520,y:430},{x:900,y:560},{x:1350,y:430},{x:1700,y:600},
+    {x:2000,y:380},{x:2350,y:560},{x:430,y:680},{x:1550,y:760},
+    {x:980,y:380},{x:2250,y:700}
+  ];
+  deco = { houses, trees, flowers: [], tufts: [], fields: [] };
+  for (let i=0;i<70;i++) deco.flowers.push(
+    {x:rnd(40,WORLD_W-40), y:rnd(SAND_BOT+20,WORLD_H-20),
+     c:["#ff6b9d","#ffe14d","#9d6bff","#ff924d"][i%4]});
+  for (let i=0;i<120;i++) deco.tufts.push(
+    {x:rnd(20,WORLD_W-20), y:rnd(SAND_BOT+10,WORLD_H-10)});
+  for (let i=0;i<6;i++) deco.fields.push(
+    {x:rnd(450,WORLD_W-400), y:rnd(SAND_BOT+60,WORLD_H-160),
+     w:rnd(180,300), h:rnd(110,160)});
+
+  treasures = [
+    {x:trees[0].x+6,  y:trees[0].y+34, found:false},   // hinter Baum
+    {x:houses[0].x-28,y:houses[0].y+72, found:false},   // neben Haus
+    {x:cave.x+150,    y:cave.y+150,     found:false},   // tief in der Höhle (leuchtet)
+    {x:islands[0].x+115,y:islands[0].y+70, found:false}, // Schatz-Insel (nur per Boot!)
+    {x:islands[1].x+105,y:islands[1].y+75, found:false}, // ferne Insel (Meer erkunden!)
+    {x:trees[6].x-4,  y:trees[6].y+36,  found:false},   // hinter Baum
+    {x:houses[2].x+150,y:houses[2].y+30,found:false},   // hinter Haus
+  ];
+
+  bushes = [];
+  for (let i=0;i<8;i++) bushes.push(
+    {x:rnd(450,WORLD_W-200), y:rnd(SAND_BOT+50,WORLD_H-60),
+     ripe:true, regrow:0});
+
+  animals = [];                                      // weit weg vom Start (~x 700)
+  for (let i=0;i<4;i++) animals.push(
+    {x:rnd(1350,WORLD_W-200), y:rnd(SAND_BOT+80,WORLD_H-80),
+     vx:0, vy:0, wob:Math.random()*7, mad:0, flee:0});
+
+  rabbits = [];
+  for (let i=0;i<7;i++) rabbits.push(
+    {x:rnd(450,WORLD_W-100), y:rnd(SAND_BOT+40,WORLD_H-40),
+     hop:0, dx:0, dy:0});
+
+  // ein Boot pro Spieler, am Strand bereit
+  boats = []; cars = []; bolts = [];
+  ghost = {x:600,y:330,bob:0,say:"",sayT:0};
+}
+
+function makePlayer(n,x,y,color,kmap) {
+  return {n,x,y,color,dir:1,walk:0, hearts:3, inv:0,
+          boat:null, car:null, spark:0, puff:0, ...kmap};
+}
+
+function start(num) {
+  buildWorld();
+  players = [ makePlayer(1, 700, 360, "#e8413a",
+    {up:"ArrowUp",down:"ArrowDown",left:"ArrowLeft",right:"ArrowRight",act:"Enter"}) ];
+  boats.push({x:660,y:SEA_BOT-58,w:120,h:50,driver:null});
+  cars.push({x:PARK.x+18,y:PARK.y+22,w:74,h:38,dir:1,driver:null,cool:0});
+  if (num === 2) {
+    players.push(makePlayer(2, 760, 380, "#3a78e8",
+      {up:"w",down:"s",left:"a",right:"d",act:" "}));
+    boats.push({x:900,y:SEA_BOT-58,w:120,h:50,driver:null});
+    cars.push({x:PARK.x+88,y:PARK.y+22,w:74,h:38,dir:1,driver:null,cool:0});
+  }
+  state = "play";
+  document.getElementById("menu").classList.add("hidden");
+  document.getElementById("win").classList.add("hidden");
+}
+document.querySelectorAll("#menu button[data-players]").forEach(b =>
+  b.addEventListener("click", () => start(+b.dataset.players)));
+document.getElementById("again").addEventListener("click", () => {
+  state = "menu";
+  document.getElementById("win").classList.add("hidden");
+  document.getElementById("menu").classList.remove("hidden");
+});
+
+// ---- Hilfen ----
+function inCave(x,y){ return x>cave.x&&x<cave.x+cave.w&&y>cave.y&&y<cave.y+cave.h; }
+function onIsland(x,y){
+  for (const is of islands)
+    if (x>is.x&&x<is.x+is.w&&y>is.y&&y<is.y+is.h) return true;
+  return false;
+}
+function isWater(x,y){ return y < SEA_BOT && !onIsland(x,y); }   // Insel = Land im Meer
+// nächste begehbare Landstelle suchen (zum Aussteigen aus dem Boot)
+function landNear(x,y){
+  for (let r=10;r<=180;r+=10)
+    for (let d=0;d<360;d+=24){
+      const a=d*Math.PI/180, px=x+Math.cos(a)*r, py=y+Math.sin(a)*r;
+      if (!blockedFoot(px,py)) return {x:px,y:py};
+    }
+  return {x:Math.max(20,Math.min(WORLD_W-20,x)), y:SEA_BOT+12};
+}
+function blockedFoot(x,y){
+  if (x<14||x>WORLD_W-14||y>WORLD_H-12) return true;
+  if (isWater(x,y)) return true;                       // Wasser sperrt; Insel/Strand begehbar
+  for (const h of deco.houses)
+    if (x>h.x&&x<h.x+h.w&&y>h.y+30&&y<h.y+h.h) return true;
+  return false;
+}
+function nearestUnfound(x,y){
+  let best=null, bd=1e9;
+  for (const tr of treasures){ if (tr.found) continue;
+    const d=Math.hypot(tr.x-x,tr.y-y); if (d<bd){bd=d;best=tr;} }
+  return {tr:best,d:bd};
+}
+
+// ---- Aktionstaste: Schatz / Boot / Beere (kontextabhängig) ----
+function doAction(p) {
+  // Tiere in die Flucht schlagen (immer, zusätzlich zur sonstigen Aktion)
+  if (p.boat) {                                   // Boot verlassen: an Land daneben
+    const s = landNear(p.x, p.y);                 // Insel ODER Strand, je nachdem
+    p.boat.driver = null; p.boat = null;
+    p.x = s.x; p.y = s.y; sndBoat(); return;
+  }
+  if (p.car) {
+    if (onPark(p.x,p.y)) {                         // nur auf dem Parkplatz aussteigen
+      const s = landNear(p.x, p.y);
+      p.car.driver = null; p.car = null;
+      p.x = s.x; p.y = s.y; sndBoat();
+    } else {                                       // sonst: auf nächstes Tier schießen
+      fireBolt(p);
+    }
+    return;
+  }
+  // zu Fuß: Tiere verscheuchen
+  for (const a of animals) {
+    const k=Math.hypot(a.x-p.x,a.y-p.y);
+    if (k<160){ a.flee=150; a.mad=0;
+      a.vx=(a.x-p.x)/(k||1)*2.4; a.vy=(a.y-p.y)/(k||1)*2.4; }
+  }
+  for (const b of boats) {                         // ins Boot einsteigen
+    if (!b.driver && Math.hypot(b.x+b.w/2-p.x, b.y+b.h/2-p.y) < 95) {
+      b.driver = p; p.boat = b; p.x=b.x+b.w/2; p.y=b.y+b.h/2;
+      sndBoat(); return;
+    }
+  }
+  for (const c of cars) {                           // ins Auto einsteigen
+    if (!c.driver && Math.hypot(c.x+c.w/2-p.x, c.y+c.h/2-p.y) < 90) {
+      c.driver = p; p.car = c; p.x=c.x+c.w/2; p.y=c.y+c.h/2;
+      sndBoat(); return;
+    }
+  }
+  for (const bu of bushes) {                        // Beere essen
+    if (bu.ripe && p.hearts<3 && Math.hypot(bu.x-p.x,bu.y-p.y)<40) {
+      bu.ripe=false; bu.regrow=600; p.hearts++; p.spark=1; sndEat(); return;
+    }
+  }
+  const {tr,d} = nearestUnfound(p.x,p.y);           // graben/suchen
+  if (tr && d<44) {
+    tr.found=true; p.spark=1; sndFound();
+    if (treasures.every(z=>z.found)) {
+      state="win";
+      document.getElementById("win").classList.remove("hidden");
+    }
+  } else { p.puff=1; sndNope(); }
+}
+
+// ---- Update ----
+function update() {
+  t++;
+  for (const p of players) {
+    let dx=0,dy=0;
+    if (keys.has(p.up)) dy-=1;
+    if (keys.has(p.down)) dy+=1;
+    if (keys.has(p.left)){ dx-=1; p.dir=-1; }
+    if (keys.has(p.right)){ dx+=1; p.dir=1; }
+    if (dx||dy) {
+      const l=Math.hypot(dx,dy), sp = p.car?4.8 : p.boat?3.8 : 2.6;
+      let nx=p.x+dx/l*sp, ny=p.y+dy/l*sp;
+      if (p.boat) {                                 // Boot fährt nur auf Wasser
+        nx=Math.max(20,Math.min(WORLD_W-20,nx));
+        ny=Math.max(16,Math.min(SEA_BOT-6,ny));
+        p.x=nx; p.y=ny; p.boat.x=nx-p.boat.w/2; p.boat.y=ny-p.boat.h/2;
+      } else if (p.car) {                           // Auto fährt nur auf der Straße
+        if (onRoad(nx,p.y)) p.x=nx;
+        if (onRoad(p.x,ny)) p.y=ny;
+        if (dx) p.car.dir = dx>0?1:-1;
+        p.car.x=p.x-p.car.w/2; p.car.y=p.y-p.car.h/2;
+      } else {
+        if (!blockedFoot(nx,p.y)) p.x=nx;
+        if (!blockedFoot(p.x,ny)) p.y=ny;
+      }
+      p.walk+=.25;
+    }
+    if (!p.boat && !p.car && isWater(p.x,p.y)) {     // nie im Wasser feststecken
+      const s=landNear(p.x,p.y); p.x=s.x; p.y=s.y;
+    }
+    if (pressedOnce.has(p.act)) doAction(p);
+    if (p.inv>0) p.inv--;
+    if (p.spark>0) p.spark=Math.max(0,p.spark-.02);
+    if (p.puff>0)  p.puff =Math.max(0,p.puff -.04);
+  }
+  pressedOnce.clear();
+
+  // gruselige Tiere: erschreckt fliehen, sonst streunen, nah jagen, einmal beißen
+  for (const a of animals) {
+    a.wob += .15;
+    let mx;
+    if (a.flee>0) {                                 // erschreckt: rennt weg
+      a.flee--; a.mad=0;
+      let np=null, nd=1e9;
+      for (const p of players){ const d=Math.hypot(p.x-a.x,p.y-a.y);
+        if (d<nd){nd=d;np=p;} }
+      if (np){ const k=nd||1;
+        a.vx=(a.x-np.x)/k*2.4; a.vy=(a.y-np.y)/k*2.4; }
+      mx=2.4;
+    } else {
+      let tgt=null, td=1e9;
+      for (const p of players) {
+        if (p.boat || p.car || p.inv>0) continue;
+        const d=Math.hypot(p.x-a.x,p.y-a.y);
+        if (d<td){td=d;tgt=p;}
+      }
+      if (tgt && td<165) {                          // jagen, klar langsamer als Spieler
+        a.mad=Math.min(1,a.mad+.03);
+        a.vx += (tgt.x-a.x)/td*.16; a.vy += (tgt.y-a.y)/td*.16;
+        if (td<26) {                                // einmal beißen, dann zurück
+          tgt.hearts--; tgt.inv=140; sndBite();
+          const k=Math.hypot(tgt.x-a.x,tgt.y-a.y)||1;  // Rückstoß, aber nie ins Wasser
+          tgt.x=Math.max(16,Math.min(WORLD_W-16, tgt.x+(tgt.x-a.x)/k*22));
+          tgt.y=Math.max(SEA_BOT+8,Math.min(WORLD_H-12, tgt.y+(tgt.y-a.y)/k*22));
+          if (tgt.hearts<0) tgt.hearts=0;           // 0 Herzen ok, läuft weiter
+          a.flee=70;                                // satt: weicht zurück
+        }
+        mx=1.5;
+      } else {                                      // gemütlich streunen
+        a.mad=Math.max(0,a.mad-.02);
+        if (Math.random()<.02){ a.vx=rnd(-.6,.6); a.vy=rnd(-.6,.6); }
+        mx=0.7;
+      }
+    }
+    const sp=Math.hypot(a.vx,a.vy);
+    if (sp>mx){ a.vx=a.vx/sp*mx; a.vy=a.vy/sp*mx; }
+    let nx=a.x+a.vx, ny=a.y+a.vy;
+    if (ny<SAND_BOT+12){ ny=SAND_BOT+12; a.vy*=-1; }   // nicht ins Wasser
+    if (ny>WORLD_H-14){ ny=WORLD_H-14; a.vy*=-1; }
+    if (nx<14||nx>WORLD_W-14) a.vx*=-1;
+    a.x=Math.max(14,Math.min(WORLD_W-14,nx)); a.y=ny;
+  }
+
+  // niedliche Kaninchen: hoppeln, fliehen leicht vor Spielern
+  for (const r of rabbits) {
+    if (r.hop>0){ r.hop--; r.x+=r.dx; r.y+=r.dy; }
+    else if (Math.random()<.03) {
+      let ax=rnd(-1,1), ay=rnd(-1,1);
+      for (const p of players){ const d=Math.hypot(p.x-r.x,p.y-r.y);
+        if (d<120){ ax=(r.x-p.x)/d; ay=(r.y-p.y)/d; } }
+      const l=Math.hypot(ax,ay)||1; r.dx=ax/l*2.4; r.dy=ay/l*2.4; r.hop=14;
+    }
+    r.x=Math.max(20,Math.min(WORLD_W-20,r.x));
+    r.y=Math.max(SAND_BOT+10,Math.min(WORLD_H-12,r.y));
+  }
+
+  for (const bu of bushes) if (!bu.ripe && --bu.regrow<=0) bu.ripe=true;
+
+  // Auto-Schüsse: fliegen, treffen ein Tier -> Plopp, es flieht (kein Töten)
+  for (let i=bolts.length-1;i>=0;i--){
+    const b=bolts[i]; b.x+=b.vx; b.y+=b.vy; b.life--;
+    let hit=false;
+    for (const a of animals){
+      if (Math.hypot(a.x-b.x,a.y-b.y)<18){
+        a.flee=220; a.mad=0;
+        const k=Math.hypot(a.x-b.x,a.y-b.y)||1;
+        a.vx=(a.x-b.x)/k*2.6; a.vy=(a.y-b.y)/k*2.6;
+        a.poof=14; sndPop(); hit=true; break;
+      }
+    }
+    if (hit || b.life<=0 || b.x<0||b.x>WORLD_W||b.y<0||b.y>WORLD_H)
+      bolts.splice(i,1);
+  }
+  for (const a of animals) if (a.poof>0) a.poof--;
+
+  // Flatter schwebt freundlich mit, sagt nette Sachen
+  const lead=players[0];
+  ghost.x += (lead.x - ghost.x)*.01;
+  ghost.y += (lead.y-60 - ghost.y)*.01;
+  ghost.bob += .07;
+  if (--ghost.sayT<=0) {
+    const {d}=nearestUnfound(lead.x,lead.y);
+    ghost.say = d<90 ? "Ganz heiß! 🔥" : d<260 ? "Wärmer … 👀"
+              : "Folg dem Pfeil! ✨";
+    ghost.sayT=170;
+  }
+}
+
+// ---- Zeichnen ----
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); }
+
+let camX=0, camY=0;
+function camera(){
+  let ax=0,ay=0; for (const p of players){ax+=p.x;ay+=p.y;}
+  ax/=players.length; ay/=players.length;
+  camX=Math.max(0,Math.min(WORLD_W-VW, ax-VW/2));
+  camY=Math.max(0,Math.min(WORLD_H-VH, ay-VH/2));
+}
+
+function bg() {
+  const g=ctx.createLinearGradient(0,0,0,SEA_BOT);
+  g.addColorStop(0,"#1f7fa8"); g.addColorStop(1,"#54bcdb");
+  ctx.fillStyle=g; ctx.fillRect(0,0,WORLD_W,SEA_BOT);
+  ctx.strokeStyle="rgba(255,255,255,.45)"; ctx.lineWidth=2;
+  for (let i=0;i<6;i++){ ctx.beginPath();
+    for (let x=0;x<=WORLD_W;x+=24)
+      ctx.lineTo(x, 22+i*26+Math.sin((x+t*1.6+i*40)/40)*5);
+    ctx.stroke(); }
+  const sg=ctx.createLinearGradient(0,SEA_BOT,0,SAND_BOT);
+  sg.addColorStop(0,"#efdcab"); sg.addColorStop(1,"#dcc173");
+  ctx.fillStyle=sg; ctx.fillRect(0,SEA_BOT,WORLD_W,SAND_BOT-SEA_BOT);
+  const gg=ctx.createLinearGradient(0,SAND_BOT,0,WORLD_H);
+  gg.addColorStop(0,"#46a05f"); gg.addColorStop(1,"#327a48");
+  ctx.fillStyle=gg; ctx.fillRect(0,SAND_BOT,WORLD_W,WORLD_H-SAND_BOT);
+  for (const f of deco.fields){
+    ctx.fillStyle="#5bb06f"; rr(f.x,f.y,f.w,f.h,14);
+    ctx.strokeStyle="rgba(255,255,255,.12)"; ctx.lineWidth=3;
+    for (let yy=f.y+14;yy<f.y+f.h;yy+=16){
+      ctx.beginPath(); ctx.moveTo(f.x+8,yy); ctx.lineTo(f.x+f.w-8,yy); ctx.stroke(); }
+  }
+  ctx.strokeStyle="#2f6b41"; ctx.lineWidth=2;
+  for (const tf of deco.tufts){ ctx.beginPath();
+    ctx.moveTo(tf.x,tf.y); ctx.lineTo(tf.x-3,tf.y-7);
+    ctx.moveTo(tf.x,tf.y); ctx.lineTo(tf.x+3,tf.y-7); ctx.stroke(); }
+  for (const fl of deco.flowers){
+    ctx.fillStyle=fl.c;
+    for (let k=0;k<5;k++){ const a=k/5*7;
+      ctx.beginPath(); ctx.arc(fl.x+Math.cos(a)*4,fl.y+Math.sin(a)*4,3,0,7); ctx.fill(); }
+    ctx.fillStyle="#fff36b"; ctx.beginPath(); ctx.arc(fl.x,fl.y,2.5,0,7); ctx.fill();
+  }
+}
+function drawIslands(){
+  for (const is of islands){
+    ctx.fillStyle="#e7d49b"; rr(is.x,is.y,is.w,is.h,40);
+    ctx.fillStyle="#3a8a55"; rr(is.x+30,is.y+20,is.w-60,is.h-45,30);
+    const cx=is.x+is.w/2, cy=is.y+is.h*0.4;          // kleine Palme
+    ctx.fillStyle="#6b3f1d"; ctx.fillRect(cx-4,cy,8,40);
+    ctx.fillStyle="#2f7a3e";
+    for (const o of [[-22,0],[22,0],[0,-16],[-14,-12],[14,-12]])
+      { ctx.beginPath(); ctx.ellipse(cx+o[0],cy+o[1],16,9,0,0,7); ctx.fill(); }
+  }
+}
+function drawRoad(){
+  ctx.fillStyle="#5a5550"; rr(PARK.x,PARK.y,PARK.w,PARK.h,8);   // Parkplatz
+  ctx.strokeStyle="#f4d35e"; ctx.lineWidth=3; ctx.setLineDash([]);
+  ctx.strokeRect(PARK.x+6,PARK.y+6,PARK.w-12,PARK.h-12);
+  ctx.fillStyle="#7a746b"; ctx.font="13px Comic Sans MS";
+  ctx.fillText("🅿️ Parkplatz", PARK.x+12, PARK.y-8);
+  ctx.fillStyle="#4f4a45"; ctx.fillRect(0,ROAD_Y,WORLD_W,ROAD_H);  // Straße
+  ctx.strokeStyle="#f4d35e"; ctx.lineWidth=4; ctx.setLineDash([34,26]);
+  ctx.beginPath(); ctx.moveTo(0,ROAD_Y+ROAD_H/2);
+  ctx.lineTo(WORLD_W,ROAD_Y+ROAD_H/2); ctx.stroke(); ctx.setLineDash([]);
+}
+function drawCar(c){
+  ctx.fillStyle="rgba(0,0,0,.25)"; ctx.beginPath();
+  ctx.ellipse(c.x+c.w/2,c.y+c.h+3,c.w/2,6,0,0,7); ctx.fill();
+  const col = c.driver ? c.driver.color : "#d23b3b";
+  ctx.fillStyle="#222";                                 // Räder
+  ctx.fillRect(c.x+8,c.y+c.h-5,14,8); ctx.fillRect(c.x+c.w-22,c.y+c.h-5,14,8);
+  ctx.fillStyle=col; rr(c.x,c.y+6,c.w,c.h-8,7);
+  ctx.fillStyle="#9fd8ff"; rr(c.x+(c.dir>0?c.w*0.45:c.w*0.12),c.y-4,c.w*0.42,14,5);
+  ctx.fillStyle="#333";                                 // kleine Kanone vorn
+  const gx = c.dir>0 ? c.x+c.w-2 : c.x-12;
+  ctx.fillRect(gx, c.y+c.h*0.45, 14, 6);
+}
+function drawBolt(b){
+  ctx.fillStyle="#ffe24d";
+  ctx.beginPath(); ctx.arc(b.x,b.y,4,0,7); ctx.fill();
+  ctx.strokeStyle="rgba(255,200,60,.6)"; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(b.x,b.y);
+  ctx.lineTo(b.x-b.vx*1.6,b.y-b.vy*1.6); ctx.stroke();
+}
+function drawTree(x,y){
+  ctx.fillStyle="rgba(0,0,0,.18)"; ctx.beginPath();
+  ctx.ellipse(x,y+34,26,8,0,0,7); ctx.fill();
+  ctx.fillStyle="#6b3f1d"; ctx.fillRect(x-7,y+8,14,30);
+  ctx.fillStyle="#2f7a3e";
+  for (const o of [[0,-16,30],[-22,4,24],[22,4,24],[0,10,26]]){
+    ctx.beginPath(); ctx.arc(x+o[0],y+o[1],o[2],0,7); ctx.fill(); }
+  ctx.fillStyle="rgba(255,255,255,.12)";
+  ctx.beginPath(); ctx.arc(x-8,y-20,11,0,7); ctx.fill();
+}
+function drawHouse(h){
+  ctx.fillStyle="rgba(0,0,0,.18)"; rr(h.x-4,h.y+h.h-8,h.w+8,12,6);
+  ctx.fillStyle="#d3ac82"; rr(h.x,h.y+32,h.w,h.h-32,4);
+  ctx.fillStyle="#9c3b2e"; ctx.beginPath();
+  ctx.moveTo(h.x-10,h.y+38); ctx.lineTo(h.x+h.w/2,h.y-8);
+  ctx.lineTo(h.x+h.w+10,h.y+38); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="#5c3417"; ctx.fillRect(h.x+h.w/2-14,h.y+h.h-40,28,40);
+  ctx.fillStyle="#ffe9a8"; ctx.fillRect(h.x+16,h.y+52,24,24);
+}
+function drawBush(bu){
+  ctx.fillStyle="#27713f";
+  for (const o of [[0,0,18],[-12,4,13],[12,4,13]]){
+    ctx.beginPath(); ctx.arc(bu.x+o[0],bu.y+o[1],o[2],0,7); ctx.fill(); }
+  if (bu.ripe){ ctx.fillStyle="#6f4bd6";
+    for (const o of [[-6,-2],[6,0],[0,6],[-9,6],[9,7]]){
+      ctx.beginPath(); ctx.arc(bu.x+o[0],bu.y+o[1],3,0,7); ctx.fill(); } }
+}
+function drawTreasure(tr, found){
+  if (found){
+    // gefunden: offene, leere Truhe mit Häkchen ✓
+    ctx.fillStyle="#6b4418"; rr(tr.x-16,tr.y-2,32,18,4);   // leerer Kasten
+    ctx.fillStyle="#3a2a14"; rr(tr.x-13,tr.y+1,26,11,3);   // dunkles Inneres
+    ctx.fillStyle="#8a5a1a"; rr(tr.x-17,tr.y-15,34,8,3);   // aufgeklappter Deckel
+    ctx.fillStyle="#3ec46b"; ctx.font="bold 16px sans-serif";
+    ctx.fillText("✓", tr.x-6, tr.y+13);
+    ctx.fillStyle="rgba(255,235,140,.7)";
+    for (let i=0;i<5;i++){ const a=i/5*7+t*.05;
+      ctx.beginPath(); ctx.arc(tr.x+Math.cos(a)*16,tr.y-4+Math.sin(a)*10,2,0,7); ctx.fill(); }
+  } else {
+    // noch versteckt (Höhle): nur ein schwaches Glitzern, KEINE volle Truhe
+    const tw=.5+.5*Math.sin(t*.12);
+    ctx.fillStyle=`rgba(255,225,130,${.25+tw*.4})`;
+    for (let i=0;i<4;i++){ const a=i/4*7+t*.08;
+      ctx.beginPath(); ctx.arc(tr.x+Math.cos(a)*9,tr.y+Math.sin(a)*7,1.6+tw,0,7); ctx.fill(); }
+  }
+}
+function drawRabbit(r){
+  const b = r.hop>0 ? -6 : 0;
+  ctx.fillStyle="#f3f0ea";
+  ctx.beginPath(); ctx.ellipse(r.x,r.y+b,9,7,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(r.x-6,r.y-7+b,3,7,-.3,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(r.x-1,r.y-8+b,3,7,-.1,0,7); ctx.fill();
+  ctx.fillStyle="#222"; ctx.beginPath(); ctx.arc(r.x+5,r.y-1+b,1.4,0,7); ctx.fill();
+}
+function drawAnimal(a){
+  if (a.poof>0){                                   // „Plopp!" beim Treffer
+    ctx.strokeStyle=`rgba(255,220,90,${a.poof/14})`; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(a.x,a.y,8+(14-a.poof)*2.4,0,7); ctx.stroke();
+  }
+  const wob=Math.sin(a.wob)*3;
+  ctx.fillStyle="rgba(0,0,0,.22)"; ctx.beginPath();
+  ctx.ellipse(a.x,a.y+14,16,5,0,0,7); ctx.fill();
+  ctx.fillStyle = a.mad>.4 ? "#5a2740" : "#6b4a63";    // dunkel-violett, „gruselig"
+  ctx.beginPath(); ctx.ellipse(a.x,a.y+wob,17,14,0,0,7); ctx.fill();
+  // zackiger Rücken
+  ctx.beginPath(); ctx.moveTo(a.x-15,a.y-4+wob);
+  for (let i=-2;i<=2;i++) ctx.lineTo(a.x+i*7,a.y-14+wob+(i%2?4:0));
+  ctx.lineTo(a.x+15,a.y-4+wob); ctx.fill();
+  ctx.fillStyle="#ffd13b";                              // Leuchtaugen
+  ctx.beginPath(); ctx.arc(a.x-5,a.y-2+wob,3,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(a.x+5,a.y-2+wob,3,0,7); ctx.fill();
+  ctx.fillStyle="#1a0e16";
+  ctx.beginPath(); ctx.arc(a.x-5,a.y-2+wob,1.3,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(a.x+5,a.y-2+wob,1.3,0,7); ctx.fill();
+}
+function drawBoat(b){
+  ctx.fillStyle="rgba(0,0,0,.2)"; ctx.beginPath();
+  ctx.ellipse(b.x+b.w/2,b.y+b.h+4,b.w/2,7,0,0,7); ctx.fill();
+  ctx.fillStyle="#7a4a22"; rr(b.x,b.y+18,b.w,b.h-18,12);
+  ctx.fillStyle="#5c3417"; ctx.fillRect(b.x+b.w/2-3,b.y-22,6,42);
+  ctx.fillStyle="#f4f4f4"; ctx.beginPath();
+  ctx.moveTo(b.x+b.w/2,b.y-20); ctx.lineTo(b.x+b.w/2+34,b.y+14);
+  ctx.lineTo(b.x+b.w/2,b.y+14); ctx.closePath(); ctx.fill();
+}
+function drawPlayer(p){
+  if (p.boat || p.car) { return; }         // im Fahrzeug: Fahrzeug zeigt den Spieler
+  if (p.inv>0 && Math.floor(t/4)%2) return;         // Blinken nach Biss
+  const bob = Math.sin(p.walk)*2;
+  ctx.fillStyle="rgba(0,0,0,.25)"; ctx.beginPath();
+  ctx.ellipse(p.x,p.y+16,13,5,0,0,7); ctx.fill();
+  ctx.fillStyle=p.color; rr(p.x-11,p.y-8+bob,22,24,7);
+  ctx.fillStyle="#222"; rr(p.x-14,p.y-20+bob,28,8,3);
+  ctx.beginPath(); ctx.arc(p.x,p.y-20+bob,11,Math.PI,2*Math.PI); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="9px sans-serif";
+  ctx.fillText("☠", p.x-4, p.y-19+bob);
+  ctx.fillStyle="#fde3c4"; ctx.beginPath();
+  ctx.arc(p.x,p.y-2+bob,7,0,7); ctx.fill();
+  ctx.fillStyle="#222"; ctx.beginPath();
+  ctx.arc(p.x+p.dir*3,p.y-3+bob,1.6,0,7); ctx.fill();
+  // Fackel 🔥 in der Hand
+  ctx.fillStyle="#6b3f1d"; ctx.fillRect(p.x+p.dir*11,p.y-2+bob,3,12);
+  const fl=2+Math.sin(t*.4)*1.5;
+  ctx.fillStyle="#ff9b2a"; ctx.beginPath();
+  ctx.arc(p.x+p.dir*12.5,p.y-6+bob,5+fl*.3,0,7); ctx.fill();
+  ctx.fillStyle="#ffe24d"; ctx.beginPath();
+  ctx.arc(p.x+p.dir*12.5,p.y-7+bob,3,0,7); ctx.fill();
+  // Pfeil zum nächsten Schatz
+  const {tr,d}=nearestUnfound(p.x,p.y);
+  if (tr){
+    const ang=Math.atan2(tr.y-p.y,tr.x-p.x);
+    const heat=Math.max(0,1-d/700);
+    ctx.save(); ctx.translate(p.x,p.y-34); ctx.rotate(ang);
+    ctx.fillStyle=`rgb(255,${Math.round(200-heat*160)},60)`;
+    ctx.beginPath(); ctx.moveTo(14,0); ctx.lineTo(2,-6);
+    ctx.lineTo(2,-2); ctx.lineTo(-8,-2); ctx.lineTo(-8,2);
+    ctx.lineTo(2,2); ctx.lineTo(2,6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle="#fff"; ctx.font="bold 11px sans-serif";
+  ctx.fillText("P"+p.n, p.x-7, p.y+30);
+  if (p.spark>0){ ctx.fillStyle=`rgba(255,235,140,${p.spark})`;
+    for (let i=0;i<8;i++){ const a=i/8*7+t*.2, r=30*(1-p.spark)+10;
+      ctx.beginPath(); ctx.arc(p.x+Math.cos(a)*r,p.y+Math.sin(a)*r,3,0,7); ctx.fill(); } }
+  if (p.puff>0){ ctx.fillStyle=`rgba(220,220,220,${p.puff})`;
+    ctx.beginPath(); ctx.arc(p.x,p.y+10,10*(1-p.puff)+4,0,7); ctx.fill(); }
+}
+function drawGhost(){
+  const gy=ghost.y+Math.sin(ghost.bob)*5;
+  ctx.save(); ctx.globalAlpha=.85; ctx.fillStyle="#eef4ff";
+  ctx.beginPath(); ctx.arc(ghost.x,gy,15,Math.PI,0);
+  ctx.lineTo(ghost.x+15,gy+16);
+  for (let i=0;i<4;i++)
+    ctx.quadraticCurveTo(ghost.x+15-i*7.5-2,gy+22,ghost.x+15-(i+1)*7.5,gy+16);
+  ctx.lineTo(ghost.x-15,gy); ctx.fill();
+  ctx.fillStyle="#3b4a66";
+  ctx.beginPath(); ctx.arc(ghost.x-5,gy-2,2.2,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(ghost.x+5,gy-2,2.2,0,7); ctx.fill();
+  ctx.restore();
+  if (ghost.say){ ctx.font="13px Comic Sans MS";
+    const w=ctx.measureText(ghost.say).width+18;
+    ctx.fillStyle="rgba(255,255,255,.95)"; rr(ghost.x-w/2,gy-50,w,26,8);
+    ctx.fillStyle="#243"; ctx.fillText(ghost.say,ghost.x-w/2+9,gy-32); }
+}
+function caveDark(){
+  ctx.save();
+  ctx.beginPath(); ctx.rect(cave.x,cave.y,cave.w,cave.h); ctx.clip();
+  ctx.fillStyle="rgba(5,8,12,.86)"; ctx.fillRect(cave.x,cave.y,cave.w,cave.h);
+  ctx.globalCompositeOperation="destination-out";
+  const lights=[];
+  for (const p of players) if (!p.boat && inCave(p.x,p.y))
+    lights.push([p.x,p.y,110]);                       // Fackellicht
+  for (const tr of treasures) if (!tr.found && inCave(tr.x,tr.y))
+    lights.push([tr.x,tr.y,60]);
+  for (const [lx,ly,lr] of lights){
+    const g=ctx.createRadialGradient(lx,ly,4,lx,ly,lr);
+    g.addColorStop(0,"rgba(0,0,0,1)"); g.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(lx,ly,lr,0,7); ctx.fill(); }
+  ctx.restore();
+}
+function drawCave(){
+  ctx.fillStyle="#54504a"; rr(cave.x-8,cave.y-8,cave.w+16,cave.h+16,26);
+  ctx.fillStyle="#13181f"; rr(cave.x,cave.y,cave.w,cave.h,20);
+  ctx.fillStyle="#7a746b"; ctx.font="16px Comic Sans MS";
+  ctx.fillText("Gruselhöhle", cave.x+cave.w/2-44, cave.y-14);
+}
+function hud(){
+  for (let i=0;i<players.length;i++){
+    const p=players[i], x=14+i*210;
+    ctx.fillStyle="rgba(0,0,0,.42)"; rr(x,12,196,40,10);
+    ctx.fillStyle=p.color; ctx.font="bold 16px Comic Sans MS";
+    ctx.fillText("P"+p.n, x+12, 38);
+    ctx.font="17px sans-serif";
+    for (let h=0;h<3;h++) ctx.fillText(h<p.hearts?"❤️":"🤍", x+46+h*26, 39);
+  }
+  const got=treasures.filter(z=>z.found).length;
+  ctx.fillStyle="rgba(0,0,0,.42)"; rr(VW-250,12,238,40,10);
+  ctx.fillStyle="#ffd75e"; ctx.font="bold 21px Comic Sans MS";
+  ctx.fillText(`💰 ${got} von ${treasures.length}`, VW-234, 39);
+}
+
+function render(){
+  ctx.clearRect(0,0,VW,VH);
+  camera();
+  ctx.save(); ctx.translate(-camX,-camY);
+  bg();
+  drawRoad();
+  drawIslands();
+  drawCave();
+  for (const b of boats) drawBoat(b);
+  for (const h of deco.houses) drawHouse(h);
+  for (const tr of treasures) if (tr.found) drawTreasure(tr,true);
+  for (const bu of bushes) drawBush(bu);
+  for (const tt of deco.trees) drawTree(tt.x,tt.y);
+  for (const tr of treasures) if (!tr.found && inCave(tr.x,tr.y)) drawTreasure(tr,false);
+  for (const r of rabbits) drawRabbit(r);
+  for (const a of animals) drawAnimal(a);
+  for (const c of cars) drawCar(c);
+  for (const b of bolts) drawBolt(b);
+  for (const p of players) drawPlayer(p);
+  drawGhost();
+  caveDark();
+  ctx.restore();
+  hud();
+}
+function loop(){ if (state==="play"){ update(); render(); } requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
