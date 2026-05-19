@@ -2,15 +2,26 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Piraten">
+<meta name="theme-color" content="#07151d">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.svg">
 <title>Piraten-Suche 🏴‍☠️ — Online</title>
 <style>
-  html,body{margin:0;height:100%;background:#07151d;overflow:hidden;
-    font-family:"Comic Sans MS","Trebuchet MS",system-ui,sans-serif;color:#fff;
+  html,body{margin:0;width:100%;background:#2e6f4e;overflow:hidden;
+    position:relative;height:100vh;height:100lvh;
+    font-family:"Trebuchet MS","Avenir Next","Segoe UI",system-ui,sans-serif;color:#fff;
     -webkit-user-select:none;user-select:none;touch-action:none;}
-  #c{display:block;width:100vw;height:100vh;background:#2e6f4e;}
-  #join{position:fixed;inset:0;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;background:rgba(6,22,33,.92);text-align:center;}
+  /* lvh = größtmögliche Viewport-Höhe inkl. iOS-Home-Indicator-Zone */
+  #c{display:block;width:100%;height:100vh;height:100lvh;background:#2e6f4e;}
+  #safe{position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  #join{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;background:#0a2230;text-align:center;}
   #join h1{font-size:8vw;margin:0 0 10px;text-shadow:2px 2px 0 #000}
   #join p{max-width:90%;font-size:16px;line-height:1.4;opacity:.9}
   #nm{font:inherit;font-size:20px;padding:10px 14px;border:none;border-radius:8px;margin:10px;text-align:center}
@@ -18,18 +29,27 @@
     background:#f4c542;color:#4a2f00;box-shadow:0 4px 0 #b8901f;cursor:pointer}
   button:active{transform:translateY(3px);box-shadow:0 1px 0 #b8901f}
   .hidden{display:none!important}
-  #pad{position:fixed;left:18px;bottom:18px;width:150px;height:150px;border-radius:50%;
+  #pad{position:fixed;left:calc(22px + env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom));width:128px;height:128px;border-radius:50%;
     background:rgba(255,255,255,.12);touch-action:none}
-  #stick{position:absolute;left:45px;top:45px;width:60px;height:60px;border-radius:50%;
+  #stick{position:absolute;left:37px;top:37px;width:54px;height:54px;border-radius:50%;
     background:rgba(255,255,255,.35)}
-  #act{position:fixed;right:24px;bottom:34px;width:110px;height:110px;border-radius:50%;
-    background:#f4c542;color:#4a2f00;font-size:20px;font-weight:bold;border:none;
-    box-shadow:0 5px 0 #b8901f}
+  #act{position:fixed;right:calc(22px + env(safe-area-inset-right));bottom:calc(26px + env(safe-area-inset-bottom));width:96px;height:96px;border-radius:50%;
+    background:#f4c542;color:#4a2f00;font-size:17px;font-weight:bold;border:none;
+    box-shadow:0 4px 0 #b8901f}
   #act:active{transform:translateY(4px);box-shadow:0 1px 0 #b8901f}
+  #exit{position:fixed;left:50%;transform:translateX(-50%);
+    top:calc(env(safe-area-inset-top) + 96px);
+    padding:14px 26px;border-radius:14px;background:#e8543a;color:#fff;font-size:19px;font-weight:bold;
+    border:3px solid #fff;box-shadow:0 5px 0 #9c2f1c;display:none;z-index:8}
+  #exit:active{transform:translateX(-50%) translateY(4px);box-shadow:0 1px 0 #9c2f1c}
+  #restart{position:fixed;left:calc(10px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));
+    padding:8px 12px;border-radius:9px;background:rgba(20,40,55,.8);color:#fff;font-size:12px;
+    border:1px solid rgba(255,255,255,.3);display:none;z-index:7}
   .touch-only{display:none}
 </style>
 </head>
 <body>
+<div id="safe"></div>
 <canvas id="c"></canvas>
 
 <div id="join">
@@ -40,46 +60,75 @@
      Liegt ein Freund am Boden, lauf hin &amp; <b>belebe ihn wieder</b>.</p>
   <input id="nm" maxlength="14" placeholder="Dein Name" />
   <button id="go">Mitspielen ▶</button>
-  <p style="font-size:13px">PC: Pfeiltasten/WASD laufen · <b>Leertaste/Enter</b> = Aktion ·
-     Handy: Joystick + großer Knopf</p>
+  <p style="font-size:13px">PC: Pfeiltasten/WASD laufen · <b>Leertaste/Enter</b> = Aktion (im Fahrzeug: schießen) ·
+     <b>E</b> = Aussteigen · Handy: Joystick + Knöpfe</p>
 </div>
+
+<button id="fs" title="Vollbild" style="position:fixed;right:calc(12px + env(safe-area-inset-right));top:calc(56px + env(safe-area-inset-top));z-index:6;
+  font-size:18px;width:42px;height:42px;padding:0;border-radius:10px;
+  background:rgba(20,40,55,.8);color:#fff;box-shadow:none">⛶</button>
 
 <div id="pad" class="touch-only"><div id="stick"></div></div>
 <button id="act" class="touch-only">Aktion</button>
+<button id="exit">🚪 Aussteigen (E)</button>
+<button id="restart">🔄 Spiel neu starten (Admin)</button>
 
-<div id="shop" class="hidden" style="position:fixed;left:50%;top:18px;transform:translateX(-50%);
-  background:rgba(20,40,55,.95);border:2px solid #f4c542;border-radius:12px;padding:10px 14px;
-  display:flex;gap:10px;align-items:center;z-index:5">
-  <span style="font-size:15px">🛠️ Shop</span>
-  <button id="buyShovel" style="font-size:16px;padding:8px 14px;margin:0">Schippe +3 · 3🪙</button>
-  <button id="buyGun" style="font-size:16px;padding:8px 14px;margin:0">Knarre 🔫 · 12🪙</button>
+<div id="shop" class="hidden" style="position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 56px);transform:translateX(-50%);
+  width:max-content;max-width:96vw;box-sizing:border-box;
+  background:rgba(20,40,55,.96);border:2px solid #f4c542;border-radius:12px;padding:10px 12px;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;z-index:5">
+  <span style="font-size:15px;white-space:nowrap">🛠️ Shop</span>
+  <button id="buyShovel" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">Schippe +3 · 3🪙</button>
+  <button id="buyGun" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">Knarre 🔫 · 12🪙</button>
+  <button id="buyPlane" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">Flugzeug ✈️+ · 15🪙</button>
 </div>
 
-<div id="ranch" class="hidden" style="position:fixed;left:50%;top:18px;transform:translateX(-50%);
-  background:rgba(40,30,20,.95);border:2px solid #c98a3a;border-radius:12px;padding:10px 14px;
-  display:flex;gap:10px;align-items:center;z-index:5">
-  <span style="font-size:15px">🐴 Ranch</span>
-  <button id="buyHorse" style="font-size:16px;padding:8px 14px;margin:0">Pferd 🐴 · 10🛠️</button>
-  <button id="sellShovel" style="font-size:16px;padding:8px 14px;margin:0">5🛠️ → 3🪙</button>
+<div id="ranch" class="hidden" style="position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 56px);transform:translateX(-50%);
+  width:max-content;max-width:96vw;box-sizing:border-box;
+  background:rgba(40,30,20,.96);border:2px solid #c98a3a;border-radius:12px;padding:10px 12px;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;z-index:5">
+  <span style="font-size:15px;white-space:nowrap">🐴 Ranch</span>
+  <button id="buyHorse" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">Pferd 🐴 · 10🛠️</button>
+  <button id="sellShovel" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">5🛠️ → 3🪙</button>
 </div>
 
 <script>
 "use strict";
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 let DPR = 1, VW = 0, VH = 0;
+let SAFE = { top:0, right:0, bottom:0, left:0 };
 function resize(){
   DPR = Math.min(2, window.devicePixelRatio || 1);
-  VW = window.innerWidth; VH = window.innerHeight;
+  const cs = getComputedStyle(document.getElementById("safe"));
+  SAFE = {
+    top:    Math.round(parseFloat(cs.paddingTop)    || 0),
+    right:  Math.round(parseFloat(cs.paddingRight)  || 0),
+    bottom: Math.round(parseFloat(cs.paddingBottom) || 0),
+    left:   Math.round(parseFloat(cs.paddingLeft)   || 0),
+  };
+  // Bitmap exakt an die TATSÄCHLICH gerenderte (dvh-)Größe des Canvas koppeln.
+  // Nicht innerHeight nehmen — das ist auf iOS um die Safe-Area zu klein.
+  const r = cv.getBoundingClientRect();
+  VW = Math.round(r.width)  || window.innerWidth;
+  VH = Math.round(r.height) || window.innerHeight;
   cv.width = VW*DPR; cv.height = VH*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
-addEventListener("resize", resize); resize();
+addEventListener("resize", resize);
+addEventListener("orientationchange", ()=>setTimeout(resize,250));
+if(window.visualViewport){ visualViewport.addEventListener("resize",resize); visualViewport.addEventListener("scroll",resize); }
+addEventListener("load", ()=>setTimeout(resize,150));
+resize();
 
 const isTouch = matchMedia("(pointer:coarse)").matches || "ontouchstart" in window;
-if (isTouch) document.querySelectorAll(".touch-only").forEach(e=>e.style.display="block");
+// Touch-Steuerung erst IM SPIEL zeigen, nicht im Startmenü
+function showControls(on){
+  if(!isTouch) return;
+  document.querySelectorAll(".touch-only").forEach(e=>e.style.display=on?"block":"none");
+}
 
 let ws, myId = null, W = 3600, H = 1100, statics = null;
-const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], bu:[], pk:[], pl:[], su:[], tk:{x:0,y:0}, won:false, goal:6, level:1, kingDown:false };
+const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], sr:[], bu:[], pk:[], pl:[], su:[], tk:{x:0,y:0}, won:false, goal:6, level:1, kingDown:false };
 let snap = EMPTY, prevSnap = EMPTY, snapAt = 0;
 const SNAP_MS = 50;                       // Server tickt mit 20 Hz
 const input = { dx:0, dy:0, act:false };
@@ -87,6 +136,7 @@ const input = { dx:0, dy:0, act:false };
 document.getElementById("go").onclick = () => {
   const name = document.getElementById("nm").value.trim() || "Pirat";
   document.getElementById("join").classList.add("hidden");
+  showControls(true);
   connect(name);
 };
 document.getElementById("nm").addEventListener("keydown", e=>{ if(e.key==="Enter") document.getElementById("go").click(); });
@@ -107,14 +157,21 @@ function sendInput(){
   if (!ws || ws.readyState !== 1) return;
   ws.send(JSON.stringify({ t:"in", dx:input.dx, dy:input.dy, act:input.act }));
 }
+function sendExit(){ if (ws && ws.readyState===1) ws.send(JSON.stringify({ t:"exit" })); }
+const exitBtn = document.getElementById("exit");
+exitBtn.onclick = sendExit;
+exitBtn.addEventListener("touchstart", e=>{ e.preventDefault(); sendExit(); }, {passive:false});
+const restartBtn = document.getElementById("restart");
+restartBtn.onclick = ()=>{ if(ws&&ws.readyState===1 && confirm("Spiel komplett neu starten?")) ws.send(JSON.stringify({t:"restart"})); };
 
 // ---- Tastatur ----
 const keys = new Set();
 addEventListener("keydown", e=>{
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
-  keys.add(e.key.length===1?e.key.toLowerCase():e.key); updateKeyInput();
+  if(e.key.toLowerCase()==="e" && !e.repeat) sendExit();   // Aussteigen
+  keys.add(e.key.toLowerCase()); updateKeyInput();
 });
-addEventListener("keyup", e=>{ keys.delete(e.key.length===1?e.key.toLowerCase():e.key); updateKeyInput(); });
+addEventListener("keyup", e=>{ keys.delete(e.key.toLowerCase()); updateKeyInput(); });
 function updateKeyInput(){
   let dx=0,dy=0;
   if(keys.has("arrowup")||keys.has("w"))dy-=1;
@@ -134,22 +191,52 @@ function padXY(t){
   let dx=(t.clientX-(r.left+r.width/2))/(r.width/2);
   let dy=(t.clientY-(r.top+r.height/2))/(r.height/2);
   const m=Math.hypot(dx,dy); if(m>1){dx/=m;dy/=m;}
-  stick.style.left=(45+dx*45)+"px"; stick.style.top=(45+dy*45)+"px";
+  stick.style.left=(37+dx*37)+"px"; stick.style.top=(37+dy*37)+"px";
   input.dx=Math.abs(dx)<.2?0:dx; input.dy=Math.abs(dy)<.2?0:dy;
   sendInput();
 }
 pad.addEventListener("touchstart",e=>{e.preventDefault();padId=e.changedTouches[0].identifier;padXY(e.changedTouches[0]);},{passive:false});
 pad.addEventListener("touchmove",e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===padId)padXY(t);},{passive:false});
-function padEnd(e){for(const t of e.changedTouches)if(t.identifier===padId){padId=null;input.dx=0;input.dy=0;stick.style.left="45px";stick.style.top="45px";sendInput();}}
+function padEnd(e){for(const t of e.changedTouches)if(t.identifier===padId){padId=null;input.dx=0;input.dy=0;stick.style.left="37px";stick.style.top="37px";sendInput();}}
 pad.addEventListener("touchend",padEnd); pad.addEventListener("touchcancel",padEnd);
 const actBtn = document.getElementById("act");
 actBtn.addEventListener("touchstart",e=>{e.preventDefault();input.act=true;sendInput();},{passive:false});
 actBtn.addEventListener("touchend",e=>{e.preventDefault();input.act=false;sendInput();},{passive:false});
 
+// Vollbild-Knopf nur am Desktop zeigen (in der iOS-App sinnlos + überlappte HUD)
+(function(){
+  const isStandalone = window.navigator.standalone
+    || matchMedia("(display-mode:standalone)").matches;
+  const isTouchDev = matchMedia("(pointer:coarse)").matches || "ontouchstart" in window;
+  if (isStandalone || isTouchDev) document.getElementById("fs").style.display = "none";
+})();
+document.getElementById("fs").addEventListener("click",()=>{
+  const d=document.documentElement;
+  const standalone = window.navigator.standalone || matchMedia("(display-mode:standalone)").matches;
+  const canFs = !!(d.requestFullscreen||d.webkitRequestFullscreen||d.webkitRequestFullScreen);
+  if(standalone){ alert("Du bist schon im Vollbild 👍"); return; }
+  if(canFs){
+    if(!document.fullscreenElement){
+      (d.requestFullscreen||d.webkitRequestFullscreen||d.webkitRequestFullScreen).call(d);
+    } else {
+      (document.exitFullscreen||document.webkitExitFullscreen||(()=>{})).call(document);
+    }
+  } else {
+    // iPhone/iPad: Fullscreen-API gibt's nicht -> Home-Bildschirm-Trick
+    alert("Auf dem iPhone/iPad gibt es keinen Vollbild-Knopf im Browser.\n\n"+
+          "So geht's trotzdem ohne Browserleisten:\n"+
+          "1. Auf das Teilen-Symbol tippen ( ⬆️ unten/oben )\n"+
+          "2. „Zum Home-Bildschirm“ wählen\n"+
+          "3. Das neue „Piraten“-Icon vom Home-Bildschirm starten\n\n"+
+          "Dann läuft das Spiel im Vollbild.");
+  }
+});
+
 const shopEl=document.getElementById("shop");
 function buy(item){ if(ws&&ws.readyState===1) ws.send(JSON.stringify({t:"buy",item})); }
 document.getElementById("buyShovel").onclick=()=>buy("shovel");
 document.getElementById("buyGun").onclick=()=>buy("gun");
+document.getElementById("buyPlane").onclick=()=>buy("planeup");
 function updateShop(me){
   if(!statics||!me){ shopEl.classList.add("hidden"); return; }
   const s=statics.shop, near=Math.hypot(s.x+s.w/2-me.x, s.y+s.h/2-me.y)<80;
@@ -158,7 +245,10 @@ function updateShop(me){
     document.getElementById("buyShovel").disabled = me.co<3;
     const bg=document.getElementById("buyGun");
     bg.disabled = me.gn || me.co<12;
-    bg.textContent = me.gn ? "Knarre 🔫 ✓ gekauft" : "Knarre 🔫 · 12🪙";
+    bg.textContent = me.gn ? "Knarre 🔫 ✓" : "Knarre 🔫 · 12🪙";
+    const bp=document.getElementById("buyPlane");
+    bp.disabled = (me.plv||0)>=3 || me.co<15;
+    bp.textContent = (me.plv||0)>=3 ? "Flugzeug ✈️ MAX" : "Flugzeug ✈️+ ("+(me.plv||0)+"→"+((me.plv||0)+1)+") · 15🪙";
   }
 }
 const ranchEl=document.getElementById("ranch");
@@ -178,7 +268,7 @@ function updateRanch(me){
 }
 
 // ---- Interpolation (weich bei 60fps trotz 20Hz Server) ----
-let IPL = [], ITK = { x:0, y:0 };
+let IPL = [], ITK = { x:0, y:0 }, ICA = [], IBO = [], IPLN = [], ISU = [];
 const ghostPos = {};                 // id -> nachschwebende Geist-Position
 let tipText = "", tipUntil = 0;
 function updateTip(me){
@@ -194,15 +284,39 @@ function updateTip(me){
     (snap.level||1) < 3         ? "Level 2! Schnapp dir ein Flugzeug ✈️" :
                                   "Level 3! U-Boot ⚓ nehmen & König 👑 besiegen";
 }
+let selfS = null;                          // geglättete eigene Position
+let iceFx = 0;                             // Eis-Animations-Timer
+let hurtFx = 0, prevHearts = 3;            // Treffer-Flash
 function interp(){
   const f = Math.min(1, (performance.now()-snapAt)/SNAP_MS);
   const pp = {}; for (const q of prevSnap.players) pp[q.id]=q;
   IPL = snap.players.map(p=>{
-    if (p.id === myId) return p;            // eigener Spieler: sofort, kein Lag
+    if (p.id === myId) {                     // eigener Spieler: weich nachziehen
+      if (!selfS) selfS = { x:p.x, y:p.y };
+      const jump = Math.hypot(p.x-selfS.x, p.y-selfS.y);
+      if (jump > 180) { selfS.x = p.x; selfS.y = p.y; }   // Teleport: hart setzen
+      else { selfS.x += (p.x-selfS.x)*0.4; selfS.y += (p.y-selfS.y)*0.4; }
+      const ho = p.ho ? (p.mo ? { x:selfS.x, y:selfS.y, d:p.ho.d } : p.ho) : null;
+      return { ...p, x:selfS.x, y:selfS.y, ho };
+    }
     const q = pp[p.id];
-    return q ? { ...p, x:q.x+(p.x-q.x)*f, y:q.y+(p.y-q.y)*f } : p;
+    if (!q) return p;
+    const ho = p.ho ? (q.ho
+      ? { x:q.ho.x+(p.ho.x-q.ho.x)*f, y:q.ho.y+(p.ho.y-q.ho.y)*f, d:p.ho.d }
+      : p.ho) : null;
+    return { ...p, x:q.x+(p.x-q.x)*f, y:q.y+(p.y-q.y)*f, ho };
   });
   ITK = { x: prevSnap.tk.x+(snap.tk.x-prevSnap.tk.x)*f, y: snap.tk.y };
+  // Fahrzeuge glätten: eigenes ohne Lag (selfS), fremde index-interpoliert
+  const lerpVeh = (cur, prev) => cur.map((v,i) => {
+    if (v.di === myId && selfS) return { ...v, x:selfS.x, y:selfS.y };
+    const q = prev && prev[i];
+    return q ? { ...v, x:q.x+(v.x-q.x)*f, y:q.y+(v.y-q.y)*f } : v;
+  });
+  ICA = lerpVeh(snap.ca, prevSnap.ca);
+  IBO = lerpVeh(snap.bo, prevSnap.bo);
+  IPLN = lerpVeh(snap.pl, prevSnap.pl);
+  ISU = lerpVeh(snap.su, prevSnap.su);
 }
 
 // ---- Kamera (geklemmt; folgt eigenem Spieler) ----
@@ -216,6 +330,54 @@ function camera(){
 
 // ---- Zeichnen ----
 function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+// Pirat-Männchen — identisch zu Fuß & auf dem Pferd
+function drawPirate(x,y,d,c,torch){
+  ctx.fillStyle=c;rr(x-11,y-8,22,24,7);
+  ctx.fillStyle="#222";rr(x-14,y-20,28,8,3);
+  ctx.beginPath();ctx.arc(x,y-20,11,Math.PI,2*Math.PI);ctx.fill();
+  ctx.fillStyle="#fff";ctx.font="9px sans-serif";ctx.fillText("☠",x-4,y-19);
+  ctx.fillStyle="#fde3c4";ctx.beginPath();ctx.arc(x,y-2,7,0,7);ctx.fill();
+  ctx.fillStyle="#222";ctx.beginPath();ctx.arc(x+d*3,y-3,1.6,0,7);ctx.fill();
+  if(torch){
+    ctx.fillStyle="#6b3f1d";ctx.fillRect(x+d*11,y-2,3,12);
+    ctx.fillStyle="#ff9b2a";ctx.beginPath();ctx.arc(x+d*12,y-6,5,0,7);ctx.fill();
+  }
+}
+// HP-Balken über einem beschädigten Fahrzeug
+function vehHP(v,x,ytop){
+  if(!v.mh || v.hp>=v.mh) return;
+  ctx.fillStyle="rgba(0,0,0,.45)";ctx.fillRect(x-23,ytop,46,5);
+  ctx.fillStyle="#e74c3c";ctx.fillRect(x-23,ytop,46*Math.max(0,v.hp)/v.mh,5);
+}
+// kleine Piraten-Köpfe in Spielerfarbe (Insassen sichtbar machen)
+function occ(x,y,cols){
+  for(let i=0;i<cols.length;i++){
+    const ox=x+(i-(cols.length-1)/2)*15;
+    ctx.fillStyle="#222";ctx.beginPath();ctx.arc(ox,y,7,Math.PI,2*Math.PI);ctx.fill();
+    ctx.fillStyle="#fde3c4";ctx.beginPath();ctx.arc(ox,y+2,5,0,7);ctx.fill();
+    ctx.fillStyle=cols[i]||"#888";rr(ox-5,y+4,10,6,2);
+  }
+}
+// Minimap — kleine Übersicht mit Orten & Spielern
+function drawMinimap(){
+  if(!statics) return;
+  const mw=150, mh=Math.round(mw*H/W), pad=6;
+  const mx=VW-SAFE.right-mw-10, my=SAFE.top+58;
+  const sx=v=>mx+v/W*mw, sy=v=>my+v/H*mh;
+  ctx.fillStyle="rgba(10,28,40,.7)";rr(mx-pad,my-pad,mw+pad*2,mh+pad*2,8);
+  ctx.fillStyle="#2b6f8f";ctx.fillRect(mx,my,mw,mh*260/H);            // Meer
+  ctx.fillStyle="#3a8a55";ctx.fillRect(mx,my+mh*380/H,mw,mh*(H-380)/H); // Wiese
+  const dot=(x,y,c,r)=>{ctx.fillStyle=c;ctx.beginPath();ctx.arc(sx(x),sy(y),r,0,7);ctx.fill();};
+  if(statics.hq) dot(statics.hq.x,statics.hq.y,"#7ad0ff",4);
+  if(statics.shop) dot(statics.shop.x+55,statics.shop.y+45,"#f4c542",3);
+  if(statics.ranch) dot(statics.ranch.x+85,statics.ranch.y+60,"#caa66a",3);
+  if((snap.level||1)>=2&&statics.airport) dot(statics.airport.x+260,statics.airport.y+65,"#cdd6df",3);
+  if((snap.level||1)>=3&&statics.harbor) dot(statics.harbor.x+110,statics.harbor.y+25,"#9fb3c7",3);
+  for(const is of statics.islands) if(is.king) dot(is.x+is.w/2,is.y+is.h/2,"#ffd34d",4);
+  for(const a of snap.mo) dot(a.x,a.y,"rgba(220,60,60,.8)",1.6);
+  for(const p of snap.players) dot(p.x,p.y,p.id===myId?"#fff":p.c,p.id===myId?4:3);
+  ctx.fillStyle="#cfe6f5";ctx.font="9px Trebuchet MS";ctx.fillText("Karte",mx,my-pad-2);
+}
 let t=0;
 function draw(){
   t++; interp(); camera();
@@ -244,16 +406,16 @@ function draw(){
     ctx.strokeStyle="#f4d35e";ctx.lineWidth=4;ctx.setLineDash([34,26]);
     ctx.beginPath();ctx.moveTo(0,rd.ROAD_Y+rd.ROAD_H/2);ctx.lineTo(W,rd.ROAD_Y+rd.ROAD_H/2);ctx.stroke();ctx.setLineDash([]);
     const pk=statics.park;ctx.fillStyle="#5a5550";rr(pk.x,pk.y,pk.w,pk.h,8);
-    ctx.fillStyle="#7a746b";ctx.font="13px Comic Sans MS";ctx.fillText("🅿️ Parkplatz",pk.x+10,pk.y-8);
+    ctx.fillStyle="#7a746b";ctx.font="13px Trebuchet MS";ctx.fillText("🅿️ Parkplatz",pk.x+10,pk.y-8);
     const sh=statics.shop;ctx.fillStyle="#caa37a";rr(sh.x,sh.y+26,sh.w,sh.h-26,4);
     ctx.fillStyle="#7a3";ctx.beginPath();ctx.moveTo(sh.x-8,sh.y+30);ctx.lineTo(sh.x+sh.w/2,sh.y-6);ctx.lineTo(sh.x+sh.w+8,sh.y+30);ctx.fill();
-    ctx.fillStyle="#fff";ctx.font="13px Comic Sans MS";ctx.fillText("🛠️ Shop (3🪙)",sh.x-2,sh.y-12);
+    ctx.fillStyle="#fff";ctx.font="13px Trebuchet MS";ctx.fillText("🛠️ Shop (3🪙)",sh.x-2,sh.y-12);
     if(statics.airport && snap.level>=2){
       const ap=statics.airport;
       ctx.fillStyle="#5b6066";rr(ap.x,ap.y,ap.w,ap.h,10);
       ctx.strokeStyle="#f0f0f0";ctx.lineWidth=4;ctx.setLineDash([40,30]);
       ctx.beginPath();ctx.moveTo(ap.x+10,ap.y+ap.h/2);ctx.lineTo(ap.x+ap.w-10,ap.y+ap.h/2);ctx.stroke();ctx.setLineDash([]);
-      ctx.fillStyle="#fff";ctx.font="15px Comic Sans MS";ctx.fillText("✈️ Flugplatz",ap.x+ap.w/2-44,ap.y-10);
+      ctx.fillStyle="#fff";ctx.font="15px Trebuchet MS";ctx.fillText("✈️ Flugplatz",ap.x+ap.w/2-44,ap.y-10);
     }
     if(statics.ranch){
       const rn=statics.ranch;
@@ -262,12 +424,20 @@ function draw(){
       ctx.lineWidth=3;ctx.beginPath();
       for(let fx=rn.x+5;fx<rn.x+rn.w;fx+=22){ctx.moveTo(fx,rn.y+5);ctx.lineTo(fx,rn.y+rn.h-5);}
       ctx.stroke();
-      ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("🐴 Ranch (Schippen)",rn.x-4,rn.y-10);
+      ctx.fillStyle="#fff";ctx.font="14px Trebuchet MS";ctx.fillText("🐴 Ranch (Schippen)",rn.x-4,rn.y-10);
     }
     if(statics.harbor && snap.level>=3){
       const hb=statics.harbor;
       ctx.fillStyle="#6b5638";rr(hb.x,hb.y,hb.w,hb.h,6);
-      ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("⚓ U-Boot-Hafen",hb.x-2,hb.y-8);
+      ctx.fillStyle="#fff";ctx.font="14px Trebuchet MS";ctx.fillText("⚓ U-Boot-Hafen",hb.x-2,hb.y-8);
+    }
+    if(statics.hq){                                 // Headquarter / sichere Zone
+      const hq=statics.hq, R=110+(snap.level||1)*30;
+      ctx.fillStyle="rgba(80,200,255,.12)";ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.fill();
+      ctx.strokeStyle="rgba(120,220,255,.55)";ctx.lineWidth=3;ctx.setLineDash([14,10]);
+      ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle="rgba(120,220,255,.85)";ctx.font="bold 18px Trebuchet MS";ctx.textAlign="center";
+      ctx.fillText("🏰 Basis (sicher)",hq.x,hq.y-R+22);ctx.textAlign="left";
     }
     for(const is of statics.islands){
       ctx.fillStyle="#e7d49b";rr(is.x,is.y,is.w,is.h,40);
@@ -276,14 +446,20 @@ function draw(){
       ctx.fillStyle="#6b3f1d";ctx.fillRect(cx-4,cy,8,38);
       ctx.fillStyle="#2f7a3e";for(const o of[[-20,0],[20,0],[0,-15],[-13,-11],[13,-11]]){ctx.beginPath();ctx.ellipse(cx+o[0],cy+o[1],15,8,0,0,7);ctx.fill();}
       if(is.king){
-        ctx.fillStyle="#ffd34d";ctx.font="bold 18px Comic Sans MS";ctx.textAlign="center";
-        ctx.fillText("👑 Königsinsel",is.x+is.w/2,is.y-12);ctx.textAlign="left";
+        ctx.fillStyle="#ffd34d";ctx.font="bold 18px Trebuchet MS";ctx.textAlign="center";
+        ctx.fillText(snap.kingDown?"🏳️‍🌈 Erobert!":"👑 Königsinsel",is.x+is.w/2,is.y-12);ctx.textAlign="left";
+        if(snap.kingDown){                              // Regenbogen-Fahne gehisst
+          const fx=is.x+is.w/2, fy=is.y+is.h*0.38;
+          ctx.fillStyle="#6b3f1d";ctx.fillRect(fx-2,fy-46,4,46);
+          const rb=["#e74c3c","#e0a82e","#f4e04d","#2fae5f","#3a78e8","#9b59b6"];
+          for(let i=0;i<rb.length;i++){ctx.fillStyle=rb[i];ctx.fillRect(fx+2,fy-46+i*6,34,6);}
+        }
       }
     }
     const cv2=statics.cave;
     ctx.fillStyle="#54504a";rr(cv2.x-8,cv2.y-8,cv2.w+16,cv2.h+16,24);
     ctx.fillStyle="#13181f";rr(cv2.x,cv2.y,cv2.w,cv2.h,20);
-    ctx.fillStyle="#7a746b";ctx.font="15px Comic Sans MS";ctx.fillText("Gruselhöhle",cv2.x+cv2.w/2-42,cv2.y-12);
+    ctx.fillStyle="#7a746b";ctx.font="15px Trebuchet MS";ctx.fillText("Gruselhöhle",cv2.x+cv2.w/2-42,cv2.y-12);
     for(const h of statics.houses){
       ctx.fillStyle="#d3ac82";rr(h.x,h.y+32,h.w,h.h-32,4);
       ctx.fillStyle="#9c3b2e";ctx.beginPath();ctx.moveTo(h.x-10,h.y+38);ctx.lineTo(h.x+h.w/2,h.y-8);ctx.lineTo(h.x+h.w+10,h.y+38);ctx.fill();
@@ -297,10 +473,13 @@ function draw(){
     }
   }
   // Boote
-  for(const b of snap.bo){
+  for(const b of IBO){
     ctx.fillStyle="#7a4a22";rr(b.x-60,b.y-7,120,32,12);
     ctx.fillStyle="#5c3417";ctx.fillRect(b.x-3,b.y-44,6,40);
     ctx.fillStyle="#f4f4f4";ctx.beginPath();ctx.moveTo(b.x,b.y-42);ctx.lineTo(b.x+34,b.y-6);ctx.lineTo(b.x,b.y-6);ctx.fill();
+    if(b.dm>0){ctx.fillStyle="rgba(255,60,60,"+(b.dm/14)+")";rr(b.x-60,b.y-7,120,32,12);}
+    if(b.dr) occ(b.x-22, b.y-2, [b.dC]);
+    vehHP(b, b.x, b.y-58);
   }
   // Schätze
   for(const tr of snap.tr){
@@ -308,6 +487,18 @@ function draw(){
       ctx.fillStyle="#6b4418";rr(tr.x-16,tr.y-2,32,18,4);
       ctx.fillStyle="#8a5a1a";rr(tr.x-17,tr.y-15,34,8,3);
       ctx.fillStyle="#3ec46b";ctx.font="bold 15px sans-serif";ctx.fillText("✓",tr.x-5,tr.y+12);
+      if(tr.fx>0){                                  // Fund-Animation: 3 Kanonen fliegen raus
+        const pr=(16-tr.fx)/16;
+        for(let i=-1;i<=1;i++){
+          const cx=tr.x+i*42*pr, cy=tr.y-10-60*pr*(1-pr)*4;
+          ctx.save();ctx.translate(cx,cy);ctx.rotate(i*0.5+pr*6);
+          ctx.fillStyle="#333";rr(-9,-4,18,8,2);
+          ctx.fillStyle="#555";ctx.beginPath();ctx.arc(9,0,4,0,7);ctx.fill();
+          ctx.restore();
+        }
+        ctx.fillStyle=`rgba(255,225,120,${1-pr})`;
+        for(let i=0;i<8;i++){const a=i/8*7;ctx.beginPath();ctx.arc(tr.x+Math.cos(a)*40*pr,tr.y-6+Math.sin(a)*30*pr,3,0,7);ctx.fill();}
+      }
     } else if(tr.cv){
       const tw=.5+.5*Math.sin(t*.12);
       ctx.fillStyle=`rgba(255,225,130,${.3+tw*.4})`;
@@ -332,15 +523,35 @@ function draw(){
   ctx.fillStyle="#ff7eb6";rr(tk.x-26,tk.y-20,52,10,5);
   ctx.fillStyle="#333";ctx.beginPath();ctx.arc(tk.x-16,tk.y+12,6,0,7);ctx.arc(tk.x+16,tk.y+12,6,0,7);ctx.fill();
   ctx.font="14px sans-serif";ctx.fillText("🍦",tk.x-7,tk.y-24);
-  // Autos
-  for(const c of snap.ca){
+  // Autos — 4 Baureihen: 0 Sportwagen, 1 Pickup, 2 Trabi, 3 Van
+  const CARCOL=["#e23b3b","#3b7de2","#caa23a","#7a4ad6"];
+  for(const c of ICA){
+    const ml=c.ml||0, col=CARCOL[ml];
     ctx.fillStyle="#222";ctx.fillRect(c.x-30,c.y+12,12,7);ctx.fillRect(c.x+18,c.y+12,12,7);
-    ctx.fillStyle="#d23b3b";rr(c.x-34,c.y-8,68,26,7);
-    ctx.fillStyle="#9fd8ff";rr(c.x+(c.d>0?4:-22),c.y-6,20,12,4);
-    ctx.fillStyle="#333";ctx.fillRect(c.d>0?c.x+30:c.x-44,c.y+2,14,6);
+    if(ml===0){            // Sportwagen: flach, Spoiler
+      ctx.fillStyle=col;rr(c.x-36,c.y-2,72,20,9);
+      ctx.fillStyle="#222";ctx.fillRect(c.d>0?c.x+30:c.x-36,c.y-12,6,12);
+      ctx.fillStyle="#9fd8ff";rr(c.x-12,c.y-7,26,9,3);
+    } else if(ml===1){     // Pickup: Kabine + Ladefläche
+      ctx.fillStyle=col;rr(c.x-36,c.y-2,72,20,5);
+      ctx.fillStyle=col;rr(c.x+(c.d>0?-30:6),c.y-16,26,16,4);
+      ctx.fillStyle="#9fd8ff";rr(c.x+(c.d>0?-26:10),c.y-13,18,10,3);
+    } else if(ml===2){     // Trabi: kompakt, kastig
+      ctx.fillStyle=col;rr(c.x-28,c.y-6,56,24,4);
+      ctx.fillStyle="#cfe6f5";rr(c.x-20,c.y-4,40,10,2);
+    } else {               // Van: hoch
+      ctx.fillStyle=col;rr(c.x-34,c.y-20,68,38,7);
+      ctx.fillStyle="#9fd8ff";rr(c.x+(c.d>0?6:-30),c.y-15,24,12,3);
+    }
+    ctx.fillStyle=c.dC||"rgba(0,0,0,.35)";rr(c.x-34,c.y-(ml===3?20:8),68,6,6);  // Streifen = Fahrerfarbe
+    ctx.fillStyle="#333";ctx.fillRect(c.d>0?c.x+32:c.x-46,c.y+2,14,6);          // Kanone
+    if(c.dm>0){ctx.fillStyle="rgba(255,60,60,"+(c.dm/14)+")";rr(c.x-36,c.y-22,72,40,7);}
+    const cols=[]; if(c.dr)cols.push(c.dC); if(c.pi)cols.push(c.pC);
+    if(cols.length) occ(c.x, c.y-(ml===3?28:18), cols);
+    vehHP(c, c.x, c.y-(ml===3?40:30));
   }
   // Flugzeuge
-  for(const pl of snap.pl){
+  for(const pl of IPLN){
     ctx.save();ctx.translate(pl.x,pl.y);ctx.scale(pl.d>0?1:-1,1);
     ctx.fillStyle="rgba(0,0,0,.18)";ctx.beginPath();ctx.ellipse(0,30,34,8,0,0,7);ctx.fill();
     ctx.fillStyle="#cdd6df";ctx.beginPath();ctx.moveTo(-6,-26);ctx.lineTo(10,0);ctx.lineTo(-6,26);ctx.lineTo(-14,0);ctx.closePath();ctx.fill();
@@ -348,20 +559,39 @@ function draw(){
     ctx.fillStyle="#cdd6df";ctx.beginPath();ctx.moveTo(36,0);ctx.lineTo(50,-6);ctx.lineTo(50,6);ctx.closePath();ctx.fill();
     ctx.fillStyle="#7f97ab";rr(-40,-4,12,8,2);
     ctx.fillStyle="#bfe0ff";ctx.beginPath();ctx.arc(20,-2,5,0,7);ctx.fill();
+    if(pl.dm>0){ctx.fillStyle="rgba(255,60,60,"+(pl.dm/14)+")";rr(-40,-7,80,14,7);}
     ctx.restore();
+    if(pl.dr) occ(pl.x, pl.y-20, [pl.dC]);
+    vehHP(pl, pl.x, pl.y-34);
   }
   // U-Boote
-  for(const su of snap.su){
+  for(const su of ISU){
     ctx.save();ctx.translate(su.x,su.y);ctx.scale(su.d>0?1:-1,1);
     ctx.fillStyle="#3d4f63";ctx.beginPath();ctx.ellipse(0,0,34,15,0,0,7);ctx.fill();
     ctx.fillStyle="#2c3a49";rr(-6,-26,14,16,4);
     ctx.fillStyle="#2c3a49";ctx.fillRect(34,-3,12,6);
     ctx.fillStyle="#bfe0ff";ctx.beginPath();ctx.arc(8,-2,5,0,7);ctx.fill();
     ctx.fillStyle="rgba(255,255,255,.5)";ctx.beginPath();ctx.arc(-14,-4,3,0,7);ctx.arc(-22,2,2,0,7);ctx.fill();
+    if(su.dm>0){ctx.fillStyle="rgba(255,60,60,"+(su.dm/14)+")";ctx.beginPath();ctx.ellipse(0,0,34,15,0,0,7);ctx.fill();}
+    ctx.restore();
+    if(su.dr) occ(su.x, su.y-22, [su.dC]);
+    vehHP(su, su.x, su.y-34);
+  }
+  // Schüsse + Boss-Speere
+  for(const b of snap.bl){ctx.fillStyle="#ffe24d";ctx.beginPath();ctx.arc(b.x,b.y,4,0,7);ctx.fill();}
+  for(let i=0;i<snap.sr.length;i++){
+    const s=snap.sr[i], q=prevSnap.sr&&prevSnap.sr[i];
+    let ang = q ? Math.atan2(s.y-q.y, s.x-q.x) : 0;
+    if(q && s.x===q.x && s.y===q.y) ang=0;
+    ctx.save();ctx.translate(s.x,s.y);ctx.rotate(ang);
+    ctx.fillStyle="rgba(231,76,60,"+(0.25+0.2*Math.sin(t*0.5))+")";   // Warn-Glühen
+    ctx.beginPath();ctx.arc(0,0,16,0,7);ctx.fill();
+    ctx.fillStyle="#7a4a22";ctx.fillRect(-18,-2.5,30,5);             // Schaft
+    ctx.fillStyle="#cdd6df";ctx.beginPath();                          // Speerspitze
+    ctx.moveTo(22,0);ctx.lineTo(8,-8);ctx.lineTo(8,8);ctx.closePath();ctx.fill();
+    ctx.fillStyle="#e74c3c";ctx.fillRect(-18,-2.5,6,5);               // rotes Ende
     ctx.restore();
   }
-  // Schüsse
-  for(const b of snap.bl){ctx.fillStyle="#ffe24d";ctx.beginPath();ctx.arc(b.x,b.y,4,0,7);ctx.fill();}
   // Monster
   for(const a of snap.mo){
     const wob=Math.sin(t*.15+a.x)*3;
@@ -407,38 +637,49 @@ function draw(){
     ctx.fillStyle="rgba(0,0,0,.4)";ctx.fillRect(a.x-bw/2,a.y-(a.tp==="koenig"?58:30),bw,5);
     ctx.fillStyle="#e74c3c";ctx.fillRect(a.x-bw/2,a.y-(a.tp==="koenig"?58:30),bw*a.hp/a.mh,5);
   }
-  // Pferde (in Spielerfarbe)
+  // Pferde (in Spielerfarbe) — beim Reiten Galopp + Reiter oben drauf
   for(const p of IPL){
     if(!p.ho) continue;
-    const hx=p.ho.x, hy=p.ho.y, hd=p.ho.d||1, bob=p.mo?Math.sin(t*0.3)*2:0;
-    ctx.fillStyle="rgba(0,0,0,.22)";ctx.beginPath();ctx.ellipse(hx,hy+16,18,5,0,0,7);ctx.fill();
-    ctx.save();ctx.translate(hx,hy+bob);ctx.scale(hd,1);
-    ctx.fillStyle=p.c;
-    ctx.beginPath();ctx.ellipse(0,0,18,11,0,0,7);ctx.fill();          // Körper
-    ctx.fillRect(8,-18,7,16);                                          // Hals
-    ctx.beginPath();ctx.ellipse(13,-20,7,6,0,0,7);ctx.fill();          // Kopf
-    ctx.fillRect(-12,6,4,12);ctx.fillRect(8,6,4,12);                   // Beine
-    ctx.fillStyle="rgba(0,0,0,.35)";ctx.fillRect(-18,-10,5,16);        // Schweif
+    const hx=p.ho.x, hy=p.ho.y, hd=p.ho.d||1;
+    const gp = p.mo ? t*0.22 : t*0.07;            // ruhiger Galopp/Steh-Takt
+    const bob = (p.mo ? 1.6 : 1.0)*Math.sin(gp);
+    const leg = (p.mo ? 2.6 : 0)*Math.sin(gp);
+    ctx.fillStyle="rgba(0,0,0,.22)";ctx.beginPath();ctx.ellipse(hx,hy+18,20,5,0,0,7);ctx.fill();
+    ctx.save();ctx.translate(hx,hy-bob);ctx.scale(hd,1);
+    ctx.fillStyle="#6b4a2a";                       // Beine
+    ctx.fillRect(-13,5+leg,4,13);ctx.fillRect(9,5-leg,4,13);
+    ctx.fillRect(-8,5-leg,4,13);ctx.fillRect(4,5+leg,4,13);
+    ctx.fillStyle="rgba(30,20,10,.6)";             // Schweif
+    ctx.beginPath();ctx.moveTo(-17,-8);
+    ctx.quadraticCurveTo(-25,-2+Math.sin(gp)*2.5,-22,10);ctx.lineTo(-16,6);ctx.fill();
+    ctx.fillStyle=p.c;                             // Körper + Hals + Kopf
+    ctx.beginPath();ctx.ellipse(0,0,19,11,0,0,7);ctx.fill();
+    ctx.beginPath();ctx.moveTo(7,-2);ctx.lineTo(11,-19);ctx.lineTo(18,-18);ctx.lineTo(14,2);ctx.closePath();ctx.fill();
+    ctx.beginPath();ctx.ellipse(17,-21,7,6,0,0,7);ctx.fill();
+    ctx.fillStyle="rgba(30,20,10,.55)";ctx.fillRect(8,-20,3,12);      // Mähne
+    ctx.fillStyle="#1a0e08";ctx.beginPath();ctx.arc(20,-22,1.6,0,7);ctx.fill();
     ctx.restore();
+    if(p.mo){                                      // Reiter = exakt das Lauf-Männchen
+      drawPirate(hx, Math.round(hy-bob)-14, p.d, p.c, false);
+      ctx.fillStyle=p.id===myId?"#fff":"#ffe7a8";
+      ctx.font="bold 12px Trebuchet MS";ctx.textAlign="center";
+      ctx.fillText(p.n,hx,hy+34);ctx.textAlign="left";
+    }
   }
   // Spieler
   for(const p of IPL){
-    if(p.bo||p.ca||p.pn||p.su) continue;
-    if(p.dn){ // am Boden
+    if(p.bo||p.ca||p.pn||p.su||p.mo) continue;
+    if(p.dn){ // am Boden — Mitspieler kann hinlaufen & wiederbeleben
+      ctx.strokeStyle="rgba(255,210,90,"+(0.4+0.3*Math.sin(t*0.25))+")";ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(p.x,p.y+2,24,0,7);ctx.stroke();
       ctx.fillStyle=p.c;rr(p.x-13,p.y+4,26,12,6);
-      ctx.fillStyle="#fff";ctx.font="14px Comic Sans MS";ctx.fillText("💫",p.x-8,p.y-2);
+      ctx.fillStyle="#fff";ctx.font="14px Trebuchet MS";ctx.fillText("💫",p.x-8,p.y-2);
+      ctx.fillStyle="#ffd75e";ctx.font="bold 11px Trebuchet MS";ctx.textAlign="center";
+      ctx.fillText(p.id===myId?"Hilfe! 🆘":"🆘 helfen",p.x,p.y+30);ctx.textAlign="left";
     } else {
       if(p.iv && Math.floor(t/4)%2 && p.id===myId){} else {
         ctx.fillStyle="rgba(0,0,0,.25)";ctx.beginPath();ctx.ellipse(p.x,p.y+16,13,5,0,0,7);ctx.fill();
-        ctx.fillStyle=p.c;rr(p.x-11,p.y-8,22,24,7);
-        ctx.fillStyle="#222";rr(p.x-14,p.y-20,28,8,3);
-        ctx.beginPath();ctx.arc(p.x,p.y-20,11,Math.PI,2*Math.PI);ctx.fill();
-        ctx.fillStyle="#fff";ctx.font="9px sans-serif";ctx.fillText("☠",p.x-4,p.y-19);
-        ctx.fillStyle="#fde3c4";ctx.beginPath();ctx.arc(p.x,p.y-2,7,0,7);ctx.fill();
-        ctx.fillStyle="#222";ctx.beginPath();ctx.arc(p.x+p.d*3,p.y-3,1.6,0,7);ctx.fill();
-        // Fackel
-        ctx.fillStyle="#6b3f1d";ctx.fillRect(p.x+p.d*11,p.y-2,3,12);
-        ctx.fillStyle="#ff9b2a";ctx.beginPath();ctx.arc(p.x+p.d*12,p.y-6,5,0,7);ctx.fill();
+        drawPirate(p.x, p.y, p.d, p.c, true);
       }
     }
     // Tamagotchi-Geist trottet langsam hinterher (nicht direkt drauf)
@@ -456,18 +697,10 @@ function draw(){
       ctx.fillStyle=p.c;ctx.globalAlpha=0.35;rr(gx-9,gy-2,18,6,3);
       ctx.globalAlpha=1;ctx.fillStyle="#3b4a66";
       ctx.beginPath();ctx.arc(gx-3,gy-1,1.5,0,7);ctx.arc(gx+3,gy-1,1.5,0,7);ctx.fill();
-      // eigener Geist gibt Tipps
-      if(p.id===myId && tipText){
-        ctx.font="12px Comic Sans MS";
-        const w=ctx.measureText(tipText).width+16;
-        ctx.fillStyle="rgba(255,255,255,.95)";rr(gx-w/2,gy-34,w,22,7);
-        ctx.fillStyle="#243";ctx.textAlign="center";
-        ctx.fillText(tipText,gx,gy-19);ctx.textAlign="left";
-      }
     }
     // Name + Pfeil zum nächsten Schatz (eigener Spieler)
     ctx.fillStyle=p.id===myId?"#fff":"#ffe7a8";
-    ctx.font="bold 12px Comic Sans MS";ctx.textAlign="center";
+    ctx.font="bold 12px Trebuchet MS";ctx.textAlign="center";
     ctx.fillText(p.n,p.x,p.y+34);ctx.textAlign="left";
   }
   // Pfeil zum nächsten Schatz für mich
@@ -485,27 +718,76 @@ function draw(){
   }
   ctx.restore();
 
+  // Treffer-Flash: roter Rand, wenn ich Leben verliere
+  if(me){
+    if(me.h < prevHearts) hurtFx = t + 26;
+    prevHearts = me.h;
+  }
+  if(hurtFx > t){
+    const a = (hurtFx-t)/26*0.55;
+    const g = ctx.createRadialGradient(VW/2,VH/2,Math.min(VW,VH)*0.3,VW/2,VH/2,Math.max(VW,VH)*0.65);
+    g.addColorStop(0,"rgba(200,0,0,0)"); g.addColorStop(1,"rgba(200,0,0,"+a+")");
+    ctx.fillStyle=g; ctx.fillRect(0,0,VW,VH);
+  }
+  // Eis-kaufen-Animation (fettes Eis + zufrieden)
+  if(me && me.fx==="ice") iceFx = t + 70;
+  if(iceFx > t){
+    const k = Math.min(1,(iceFx-t)/70);
+    ctx.font = (60+20*Math.sin(t*0.3))+"px sans-serif"; ctx.textAlign="center";
+    ctx.globalAlpha = Math.min(1, k*2);
+    ctx.fillText("🍦", VW/2, VH*0.42);
+    ctx.font="bold 22px Trebuchet MS"; ctx.fillStyle="#fff";
+    ctx.fillText("Lecker! +2 ❤️", VW/2, VH*0.42+44);
+    ctx.globalAlpha=1; ctx.textAlign="left";
+  }
+
   // ---- HUD ----
   if(me){
-    ctx.fillStyle="rgba(0,0,0,.45)";rr(10,10,250,46,10);
-    ctx.font="20px sans-serif";
-    for(let h=0;h<3;h++)ctx.fillText(h<me.h?"❤️":"🤍",18+h*26,40);
-    ctx.fillStyle="#ffd75e";ctx.font="bold 17px Comic Sans MS";
-    ctx.fillText("🪙 "+me.co+"  🛠️ "+me.sh+(me.gn?"  🔫":""),104,40);
-    if(me.sh<=1){
-      ctx.fillStyle="rgba(180,30,30,.85)";rr(14,60,360,30,8);
-      ctx.fillStyle="#fff";ctx.font="bold 15px Comic Sans MS";
-      ctx.fillText(me.sh<=0?"⚠️ Keine Schippen! Monster abschießen 🔫":"⚠️ Schippen fast leer!",22,80);
-    }
+    // gut lesbar: hoher Mindest-Faktor, am Desktop etwas größer
+    const S = Math.max(0.95, Math.min(1.15, VW/1100));
+    const HX = SAFE.left + 8*S, HY = SAFE.top + 6*S, RX = VW - SAFE.right - 8*S;
+    const ef = Math.round(18*S), tf = Math.round(15*S);
     const got=snap.tr.filter(x=>x.f).length, goal=snap.goal||6, lvl=snap.level||1;
-    ctx.fillStyle="rgba(0,0,0,.45)";rr(VW-250,10,240,40,10);
-    ctx.fillStyle="#ffd75e";ctx.font="bold 17px Comic Sans MS";
-    ctx.fillText("Lvl "+lvl+"  💰 "+Math.min(got,goal)+"/"+goal+" (von "+snap.tr.length+")",VW-238,36);
+    // links: Herzen + Münzen/Schippen — Box an Inhalt gemessen
+    const bh = Math.round(40*S), coinStr="🪙 "+me.co+"  🛠️ "+me.sh+(me.gn?"  🔫":"");
+    ctx.font="bold "+tf+"px Trebuchet MS";
+    const lw = Math.round(ef*4.4 + ctx.measureText(coinStr).width + 14*S);
+    ctx.fillStyle="rgba(0,0,0,.45)";rr(HX,HY,lw,bh,9*S);
+    ctx.font=ef+"px sans-serif";
+    for(let h=0;h<3;h++)ctx.fillText(h<me.h?"❤️":"🤍",HX+7*S+h*ef*1.3,HY+bh*0.68);
+    ctx.fillStyle="#ffd75e";ctx.font="bold "+tf+"px Trebuchet MS";
+    ctx.fillText(coinStr,HX+ef*4.4,HY+bh*0.66);
+    // Fahrzeug-Leben im HUD, wenn ich drin sitze
+    let myV=null;
+    if(me.bo) myV=IBO.find(v=>v.di===myId);
+    else if(me.ca) myV=ICA.find(v=>v.di===myId||v.pi===myId);
+    else if(me.pn) myV=IPLN.find(v=>v.di===myId);
+    else if(me.su) myV=ISU.find(v=>v.di===myId);
+    if(myV && myV.mh){
+      const bw=Math.round(lw), by=HY+bh+5*S, bhh=Math.round(16*S);
+      ctx.fillStyle="rgba(0,0,0,.5)";rr(HX,by,bw,bhh,6*S);
+      ctx.fillStyle="#3aa0e0";rr(HX+2,by+2,(bw-4)*Math.max(0,myV.hp)/myV.mh,bhh-4,4*S);
+      ctx.fillStyle="#fff";ctx.font="bold "+Math.round(11*S)+"px Trebuchet MS";
+      ctx.fillText("🚙 "+Math.max(0,myV.hp)+"/"+myV.mh,HX+8*S,by+bhh-4*S);
+    }
+    // rechts: Level + Schätze
+    const rtxt="Lvl "+lvl+"  💰 "+Math.min(got,goal)+"/"+goal+"  ("+snap.tr.length+")";
+    ctx.font="bold "+tf+"px Trebuchet MS";
+    const rw=Math.round(ctx.measureText(rtxt).width+20*S);
+    ctx.fillStyle="rgba(0,0,0,.45)";rr(RX-rw,HY,rw,bh,9*S);
+    ctx.fillStyle="#ffd75e";ctx.fillText(rtxt,RX-rw+10*S,HY+bh*0.66);
+    if(me.sh<=1){
+      ctx.font="bold "+tf+"px Trebuchet MS";
+      const wtxt=me.sh<=0?"⚠️ Keine Schippen! Monster abschießen 🔫":"⚠️ Schippen fast leer!";
+      const ww=Math.round(ctx.measureText(wtxt).width+18*S);
+      ctx.fillStyle="rgba(180,30,30,.85)";rr(HX,HY+bh+6*S,ww,bh*0.72,7*S);
+      ctx.fillStyle="#fff";ctx.fillText(wtxt,HX+9*S,HY+bh+6*S+bh*0.48);
+    }
     if(snap.won){
       ctx.fillStyle="rgba(20,120,50,.92)";rr(VW/2-240,VH*0.32,480,80,14);
-      ctx.fillStyle="#fff";ctx.font="bold 30px Comic Sans MS";ctx.textAlign="center";
+      ctx.fillStyle="#fff";ctx.font="bold 30px Trebuchet MS";ctx.textAlign="center";
       ctx.fillText("🎉 Geschafft! 🎉",VW/2,VH*0.32+34);
-      ctx.font="16px Comic Sans MS";
+      ctx.font="16px Trebuchet MS";
       ctx.fillText(lvl<2 ? "✈️ Level 2 lädt … der Flugplatz öffnet!"
                  : lvl<3 ? "🌊 Level 3 lädt … U-Boote, Oktopusse & Königsinsel!"
                          : "Neue Schätze kommen gleich …",VW/2,VH*0.32+60);
@@ -513,12 +795,32 @@ function draw(){
     }
     if(snap.kingDown){
       ctx.fillStyle="rgba(150,110,20,.92)";rr(VW/2-240,VH*0.5,480,64,14);
-      ctx.fillStyle="#fff";ctx.font="bold 24px Comic Sans MS";ctx.textAlign="center";
+      ctx.fillStyle="#fff";ctx.font="bold 24px Trebuchet MS";ctx.textAlign="center";
       ctx.fillText("👑 König besiegt! Insel erobert! +25🪙",VW/2,VH*0.5+40);
       ctx.textAlign="left";
     }
+    if(snap.wave){
+      ctx.fillStyle="rgba(150,40,40,.9)";rr(VW/2-170,VH*0.2,340,52,12);
+      ctx.fillStyle="#fff";ctx.font="bold 22px Trebuchet MS";ctx.textAlign="center";
+      ctx.fillText("🌊 Monsterwelle!",VW/2,VH*0.2+33);ctx.textAlign="left";
+    }
   }
+  if(me) drawMinimap();
   updateShop(me); updateRanch(me);
+  exitBtn.style.display = (me && (me.bo||me.ca||me.pn||me.su||me.mo)) ? "block" : "none";
+  restartBtn.style.display = (me && snap.admin===myId) ? "block" : "none";
+  // Tipp-Leiste: feste Position am Bildschirm (überlappt nie die Spielwelt)
+  const menusOpen = !shopEl.classList.contains("hidden") || !ranchEl.classList.contains("hidden");
+  if(me && tipText && !menusOpen){
+    const fsz = Math.max(12, Math.min(18, VW*0.022));
+    ctx.font = fsz+"px Trebuchet MS";
+    const w = Math.min(VW-20, ctx.measureText(tipText).width+24);
+    const x = VW/2 - w/2, y = SAFE.top + 54;  // oben mittig, unter dem HUD
+    ctx.fillStyle="rgba(10,28,40,.78)"; rr(x, y, w, fsz+16, 9);
+    ctx.fillStyle="#ffe7a8"; ctx.textAlign="center";
+    ctx.fillText(tipText, VW/2, y + fsz + 4);
+    ctx.textAlign="left";
+  }
   // Mitspieler-Marker am Bildrand
   for(const p of IPL){
     if(p.id===myId) continue;
@@ -526,7 +828,7 @@ function draw(){
     if(sx>10&&sx<VW-10&&sy>10&&sy<VH-10) continue;
     const mx=Math.max(20,Math.min(VW-20,sx)), myy=Math.max(60,Math.min(VH-20,sy));
     ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(mx,myy,10,0,7);ctx.fill();
-    ctx.fillStyle="#fff";ctx.font="10px Comic Sans MS";ctx.textAlign="center";
+    ctx.fillStyle="#fff";ctx.font="10px Trebuchet MS";ctx.textAlign="center";
     ctx.fillText(p.n.slice(0,6),mx,myy-14);ctx.textAlign="left";
   }
   requestAnimationFrame(draw);

@@ -14,9 +14,30 @@ const HOST = process.env.HOST || "0.0.0.0";
 // ---------- statischer Client ----------
 const CLIENT = fs.readFileSync(path.join(__dirname, "public", "index.html"));
 
+const MANIFEST = JSON.stringify({
+  name: "Piraten-Suche", short_name: "Piraten",
+  start_url: "/", display: "fullscreen", orientation: "landscape",
+  background_color: "#07151d", theme_color: "#07151d",
+  icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml" }],
+});
+const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+  '<rect width="64" height="64" rx="12" fill="#2e6f4e"/>' +
+  '<text x="32" y="44" font-size="38" text-anchor="middle">🏴‍☠️</text></svg>';
+
 const server = http.createServer((req, res) => {
   if (req.url === "/healthz") { res.writeHead(200); return res.end("ok"); }
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  if (req.url === "/manifest.json") {
+    res.writeHead(200, { "Content-Type": "application/manifest+json" });
+    return res.end(MANIFEST);
+  }
+  if (req.url === "/icon.svg") {
+    res.writeHead(200, { "Content-Type": "image/svg+xml" });
+    return res.end(ICON);
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+  });
   res.end(CLIENT);
 });
 
@@ -101,13 +122,25 @@ function closeClient(c) {
   if (!c.alive) return;
   c.alive = false;
   clients.delete(c);
-  if (c.player) delete world.players[c.player];
+  if (c.player) {
+    const pl = world.players[c.player];               // Fahrzeug-Sitze freigeben
+    if (pl) for (const arr of [world.boats, world.cars, world.planes, world.subs])
+      for (const v of arr) { if (v.driver === pl) v.driver = null; if (v.passenger === pl) v.passenger = null; }
+    delete world.players[c.player];
+    if (world.adminId === c.player) {                 // Admin neu vergeben
+      const ids = Object.keys(world.players);
+      world.adminId = ids.length ? ids[0] : null;
+    }
+  }
   try { c.socket.destroy(); } catch (_) {}
 }
 
 // ================= SPIELWELT (autoritativ) =================
 const WORLD_W = 3600, WORLD_H = 1100;
 const SEA_BOT = 260, SAND_BOT = 380;
+const HQ = { x: 700, y: 430 };                    // Headquarter / Spawn-Basis (sicher)
+function hqR() { return 110 + world.level * 30; }  // wächst pro Level
+function inHQ(x, y) { return Math.hypot(x-HQ.x, y-HQ.y) < hqR(); }
 const ROAD_Y = WORLD_H - 210, ROAD_H = 96;
 const PARK = { x: 560, y: ROAD_Y - 80, w: 160, h: 80 };
 const SHOP = { x: 300, y: 470, w: 110, h: 90 };               // Shop (Schippe/Knarre)
@@ -130,7 +163,7 @@ const islands = [
   { x: 1500, y: 40,  w: 240, h: 130 },
   { x: 2700, y: 70,  w: 220, h: 150 },
   { x: 820,  y: 30,  w: 180, h: 100 },
-  { x: 1850, y: 18,  w: 520, h: 210, king: true },
+  { x: 2620, y: 6,   w: 760, h: 238, king: true },   // groß & weit draußen
 ];
 const BIGISLAND = islands[3];
 const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
@@ -200,6 +233,7 @@ const world = {
   boats: [],
   cars: [],
   bolts: [],
+  spears: [],                                      // feindliche Speere (Boss)
   monsters: [],
   truck: { x: 0, y: ROAD_Y + ROAD_H/2, dir: 1 },   // Eiswagen
   bushes: [],
@@ -209,6 +243,9 @@ const world = {
   won: false,
   level: 1,
   kingDown: 0,                                     // >0: König besiegt (Banner-Timer)
+  adminId: null,                                   // erster Spieler darf neu starten
+  waveCd: 700,                                     // Ticks bis zur nächsten Monsterwelle
+  wave: 0,                                         // >0: "Welle!"-Banner-Timer
 };
 for (let i = 0; i < 10; i++)
   world.bushes.push({ x: rnd(500, WORLD_W-200), y: rnd(SAND_BOT+60, WORLD_H-70), ripe: true, regrow: 0 });
@@ -228,6 +265,7 @@ function spawnMonster(type, x, y) {
   }
   world.monsters.push({
     x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
+    island: type === "koenig" || type === "kannibale",   // bleibt auf der Königsinsel
     flee: 0, mad: 0, pop: 0, wob: Math.random()*7,
   });
 }
@@ -238,13 +276,15 @@ function onConnect(c) {
   c.player = id;
   world.players[id] = {
     id, name: "Pirat " + id.slice(1),
-    x: 700, y: 420, dir: 1, color: pickColor(),
-    hearts: 3, coins: 0, shovels: 5, shovelLvl: 1, gun: false, gunCd: 0,
-    boat: null, car: null, plane: null, sub: null, horse: null, mounted: false, down: 0, inv: 0,
-    in: { dx: 0, dy: 0, act: false }, lastAct: false,
+    x: HQ.x, y: HQ.y, dir: 1, color: pickColor(),
+    hearts: 3, coins: 0, shovels: 5, shovelLvl: 1, gun: false, planeLvl: 0, shootCd: 0,
+    boat: null, car: null, plane: null, sub: null, horse: null, mounted: false,
+    down: 0, inv: 0, fx: null, hqResp: false,
+    in: { dx: 0, dy: 0, act: false }, lastAct: false, lastActive: Date.now(),
   };
+  if (!world.adminId) world.adminId = id;            // erster Spieler = Admin
   send(c, { t: "init", id, W: WORLD_W, H: WORLD_H,
-            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH, harbor: HARBOR } });
+            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH, harbor: HARBOR, hq: HQ } });
 }
 const COLORS = ["#e8413a","#3a78e8","#2fae5f","#e0a82e","#9b59b6","#e91e8c"];
 function pickColor() {
@@ -261,10 +301,14 @@ function onMessage(c, m) {
     p.in.dx = Math.max(-1, Math.min(1, +m.dx || 0));
     p.in.dy = Math.max(-1, Math.min(1, +m.dy || 0));
     p.in.act = !!m.act;
+    if (p.in.dx || p.in.dy || p.in.act) p.lastActive = Date.now();
   }
+  if (m.t === "exit") exitVehicle(p);
+  if (m.t === "restart" && c.player === world.adminId) resetWorld();
   if (m.t === "buy" && nearShop(p.x, p.y)) {
     if (m.item === "shovel" && p.coins >= 3) { p.coins -= 3; p.shovels += 3; }
     else if (m.item === "gun" && !p.gun && p.coins >= 12) { p.coins -= 12; p.gun = true; }
+    else if (m.item === "planeup" && p.planeLvl < 3 && p.coins >= 15) { p.coins -= 15; p.planeLvl++; }
   }
   if (m.t === "ranch" && nearRanch(p.x, p.y)) {
     if (m.item === "horse" && !p.horse && p.shovels >= HORSE_COST) {
@@ -287,99 +331,157 @@ function nearestUnfound(x, y) {
   return { tr: best, d: bd };
 }
 
+function vehInfo(p) {
+  if (p.boat)  return { v: p.boat,  kind: "boat",  arr: world.boats };
+  if (p.car)   return { v: p.car,   kind: "car",   arr: world.cars };
+  if (p.plane) return { v: p.plane, kind: "plane", arr: world.planes };
+  if (p.sub)   return { v: p.sub,   kind: "sub",   arr: world.subs };
+  return null;
+}
+const SHOOT_RANGE = { boat: 320, car: 360, sub: 380, plane: 460, gun: 240 };
+// manuelles Schießen: aus Fahrzeug oder mit Knarre; gehaltener Knopf feuert in Kadenz
+function tryShoot(p) {
+  const veh = vehInfo(p);
+  if (!veh && !p.gun) return false;
+  if (p.shootCd > 0) return true;
+  fireBolt(p, SHOOT_RANGE[veh ? veh.kind : "gun"]);
+  p.shootCd = (veh && veh.kind === "plane") ? Math.max(2, 5 - (p.planeLvl||0)) : 7;
+  return true;
+}
+
+// Smarte Aktionstaste: automatisch die sinnvollste Aktion.
 function doAction(p) {
-  // Mitspieler wiederbeleben (sanftes Koop-Helfen)
+  // 1. Mitspieler wiederbeleben
   for (const o of Object.values(world.players))
     if (o !== p && o.down > 0 && Math.hypot(o.x-p.x, o.y-p.y) < 50) {
       o.down = 0; o.hearts = 2; o.inv = 120; return;
     }
-  if (p.boat) {                                  // Boot verlassen -> an Land daneben
-    const s = landNear(p.x, p.y);
-    p.boat.driver = null; p.boat = null; p.x = s.x; p.y = s.y; return;
-  }
-  if (p.car) {                                   // überall aussteigen (Multiplayer-tauglich)
-    const s = landNear(p.x, p.y);
-    p.car.driver = null; p.car = null; p.x = s.x; p.y = s.y;
-    return;
-  }
-  if (p.plane) {                                 // landen / aussteigen, überall
-    const s = landNear(p.x, p.y);
-    p.plane.driver = null; p.plane = null; p.x = s.x; p.y = s.y;
-    return;
-  }
-  if (p.sub) {                                   // U-Boot verlassen -> an Land daneben
-    const s = landNear(p.x, p.y);
-    p.sub.driver = null; p.sub = null; p.x = s.x; p.y = s.y;
-    return;
-  }
-  if (p.mounted) {                               // vom Pferd absteigen (überall)
-    const s = landNear(p.x, p.y);
-    p.mounted = false; p.horse.x = p.x; p.horse.y = p.y;
-    p.x = s.x; p.y = s.y; return;
-  }
-  if (p.horse && Math.hypot(p.horse.x-p.x, p.horse.y-p.y) < 70) {  // eigenes Pferd besteigen
-    p.mounted = true; p.x = p.horse.x; p.y = p.horse.y; return;
-  }
-  // Tiere verscheuchen
-  for (const a of world.monsters) {
-    const k = Math.hypot(a.x-p.x, a.y-p.y);
-    if (k < 130 && a.type !== "brocken") { a.flee = 45; a.mad = 0;
-      a.vx = (a.x-p.x)/(k||1)*2.4; a.vy = (a.y-p.y)/(k||1)*2.4; }
-  }
-  for (const b of world.boats)                   // Boot einsteigen
-    if (!b.driver && Math.hypot(b.x-p.x, b.y-p.y) < 95) {
-      b.driver = p; p.boat = b; p.x = b.x; p.y = b.y; return;
-    }
-  for (const cr of world.cars)                   // Auto einsteigen
-    if (!cr.driver && Math.hypot(cr.x-p.x, cr.y-p.y) < 90) {
-      cr.driver = p; p.car = cr; p.x = cr.x; p.y = cr.y; return;
-    }
-  for (const pl of world.planes)                 // Flugzeug einsteigen
-    if (!pl.driver && Math.hypot(pl.x-p.x, pl.y-p.y) < 100) {
-      pl.driver = p; p.plane = pl; p.x = pl.x; p.y = pl.y; return;
-    }
-  for (const su of world.subs)                    // U-Boot einsteigen
-    if (!su.driver && Math.hypot(su.x-p.x, su.y-p.y) < 100) {
-      su.driver = p; p.sub = su; p.x = su.x; p.y = su.y; return;
-    }
-  if (nearShop(p.x, p.y)) return;                  // Shop läuft über das Menü (buy)
-  if (nearRanch(p.x, p.y)) return;                 // Ranch läuft über das Menü (ranch)
-  // Eiswagen: Eis fuer Muenzen -> heilen
+  // 2. Eis am Eiswagen (auch aus dem Fahrzeug!) -> heilen
   if (Math.hypot(world.truck.x-p.x, world.truck.y-p.y) < 60 && p.hearts < 3 && p.coins >= 2) {
-    p.coins -= 2; p.hearts = Math.min(3, p.hearts + 2); return;
+    p.coins -= 2; p.hearts = Math.min(3, p.hearts + 2); p.fx = "ice"; return;
   }
-  for (const bu of world.bushes)                  // Beere essen
+  // 3. Beere essen
+  for (const bu of world.bushes)
     if (bu.ripe && p.hearts < 3 && Math.hypot(bu.x-p.x, bu.y-p.y) < 40) {
       bu.ripe = false; bu.regrow = 600; p.hearts++; return;
     }
-  // Graben (begrenzte Schaufeln, Upgrade = mehr Muenzen)
-  if (p.shovels <= 0) return;
-  const { tr, d } = nearestUnfound(p.x, p.y);
-  if (tr && d < 40 + p.shovelLvl*6) {
-    tr.found = true;
-    p.coins += 2 + p.shovelLvl * 2;
-    const got = world.treasures.filter(z => z.found).length;
-    if (got >= WIN_GOAL && !world.won) { world.won = true; winSequence(); }
-  } else {
-    p.shovels--;                                  // Fehlversuch kostet eine Schaufel
+  // 4. Graben — NUR direkt über einem ungefundenen Schatz
+  if (p.shovels > 0) {
+    const g = nearestUnfound(p.x, p.y);
+    if (g.tr && g.d < 40 + p.shovelLvl*6) {
+      g.tr.found = true; p.coins += 2 + p.shovelLvl*2; g.tr.fx = 16;
+      const got = world.treasures.filter(z => z.found).length;
+      if (got >= WIN_GOAL && !world.won) { world.won = true; winSequence(); }
+      return;
+    }
   }
+  // 5. Schießen (manuell) — im Fahrzeug oder mit Knarre zu Fuß
+  if (tryShoot(p)) return;
+  if (nearShop(p.x, p.y) || nearRanch(p.x, p.y)) return;   // Menüs erledigen das
+  // 6. Einsteigen (zu Fuß)
+  for (const b of world.boats)
+    if (!b.driver && Math.hypot(b.x-p.x, b.y-p.y) < 95) { b.driver = p; p.boat = b; p.x=b.x; p.y=b.y; return; }
+  for (const cr of world.cars)
+    if (Math.hypot(cr.x-p.x, cr.y-p.y) < 92) {
+      if (!cr.driver)        { cr.driver = p;    p.car = cr; p.x=cr.x; p.y=cr.y; return; }
+      if (!cr.passenger)     { cr.passenger = p; p.car = cr; p.x=cr.x; p.y=cr.y; return; }
+    }
+  for (const pl of world.planes)
+    if (!pl.driver && Math.hypot(pl.x-p.x, pl.y-p.y) < 100) { pl.driver = p; p.plane = pl; p.x=pl.x; p.y=pl.y; return; }
+  for (const su of world.subs)
+    if (!su.driver && Math.hypot(su.x-p.x, su.y-p.y) < 100) { su.driver = p; p.sub = su; p.x=su.x; p.y=su.y; return; }
+  // 7. Eigenes Pferd besteigen
+  if (p.horse && Math.hypot(p.horse.x-p.x, p.horse.y-p.y) < 70) {
+    p.mounted = true; p.x = p.horse.x; p.y = p.horse.y; return;
+  }
+  // 8. Schaufel werfen (Erst-Verteidigung) — sonst Monster verscheuchen
+  if (throwShovel(p)) return;
+  for (const a of world.monsters) {
+    const k = Math.hypot(a.x-p.x, a.y-p.y);
+    if (k < 120 && a.type !== "brocken" && a.type !== "koenig") {
+      a.flee = 22; a.mad = 0; a.vx = (a.x-p.x)/(k||1)*2.4; a.vy = (a.y-p.y)/(k||1)*2.4;
+    }
+  }
+}
+
+// Aussteigen / Absteigen — eigener Knopf ({t:"exit"})
+function exitVehicle(p) {
+  if (p.boat) {
+    const s = landNear(p.x, p.y); const b = p.boat;
+    if (b.driver === p) b.driver = null;
+    p.boat = null;
+    let bx = b.x, by = b.y;
+    outer: for (let r = 14; r <= 170; r += 14)
+      for (let dg = 0; dg < 360; dg += 20) {
+        const a = dg*Math.PI/180, px = s.x+Math.cos(a)*r, py = s.y+Math.sin(a)*r;
+        if (px > 20 && px < WORLD_W-20 && isWater(px, py)) {
+          bx = px; by = Math.max(16, Math.min(SEA_BOT-6, py)); break outer;
+        }
+      }
+    b.x = bx; b.y = by; p.x = s.x; p.y = s.y; return;
+  }
+  if (p.car) {
+    const s = landNear(p.x, p.y); const c = p.car;
+    if (c.driver === p) c.driver = null;
+    if (c.passenger === p) c.passenger = null;
+    p.car = null; p.x = s.x; p.y = s.y; return;
+  }
+  if (p.plane) { const s = landNear(p.x, p.y); if (p.plane.driver === p) p.plane.driver = null; p.plane = null; p.x = s.x; p.y = s.y; return; }
+  if (p.sub)   { const s = landNear(p.x, p.y); if (p.sub.driver === p)   p.sub.driver   = null; p.sub   = null; p.x = s.x; p.y = s.y; return; }
+  if (p.mounted) { const s = landNear(p.x, p.y); p.mounted = false; p.horse.x = p.x; p.horse.y = p.y; p.x = s.x; p.y = s.y; return; }
+}
+
+// Spieler geht zu Boden: aus Fahrzeug/Pferd werfen (Tod sichtbar, Sitz frei)
+function goDown(p, hq) {
+  for (const arr of [world.boats, world.cars, world.planes, world.subs])
+    for (const v of arr) { if (v.driver === p) v.driver = null; if (v.passenger === p) v.passenger = null; }
+  p.boat = p.car = p.plane = p.sub = null;
+  p.mounted = false;
+  p.hearts = 0; p.down = 600; p.inv = 0;
+  if (hq) p.hqResp = true;
+}
+// Fahrzeug zerstört: Insassen werden ohnmächtig, Fahrzeug respawnt an seiner Basis
+function destroyVehicle(v, kind, arr) {
+  for (const p of Object.values(world.players)) {
+    if (p[kind] === v) { goDown(p, true); }
+  }
+  const i = arr.indexOf(v);
+  if (i >= 0) arr.splice(i, 1);
+  const base = v.base, mh = v.maxhp;
+  setTimeout(() => {
+    const fresh = { x: base.x, y: base.y, dir: 1, driver: null, hp: mh, maxhp: mh, ic: 0, dmg: 0, base };
+    if (kind === "car") { fresh.passenger = null; fresh.mdl = v.mdl; }
+    arr.push(fresh);
+  }, 9000);
 }
 function winSequence() {
   const next = world.level + 1;
   setTimeout(() => {
     if (next === 2) {
       world.level = 2;
-      for (let i = 0; i < 3; i++)                  // Flugzeuge am Flugplatz
-        world.planes.push({ x: AIRPORT.x + 70 + i*150, y: AIRPORT.y + AIRPORT.h/2, dir: 1, driver: null, cd: 0 });
+      for (let i = 0; i < 3; i++) {                // Flugzeuge am Flugplatz
+        const px = AIRPORT.x + 70 + i*150, py = AIRPORT.y + AIRPORT.h/2;
+        world.planes.push({ x: px, y: py, dir: 1, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: px, y: py } });
+      }
       for (let i = 0; i < 6; i++) spawnMonster();   // Level 2: mehr & crazier
     } else if (next === 3) {
       world.level = 3;
-      for (let i = 0; i < 3; i++)                  // U-Boote im Hafen
-        world.subs.push({ x: HARBOR.x + 50 + i*70, y: HARBOR.y + HARBOR.h/2, dir: 1, driver: null, cd: 0 });
+      for (let i = 0; i < 3; i++) {                // U-Boote im Hafen
+        const sx = HARBOR.x + 50 + i*70, sy = HARBOR.y + HARBOR.h/2;
+        world.subs.push({ x: sx, y: sy, dir: 1, driver: null, hp: 7, maxhp: 7, ic: 0, dmg: 0, base: { x: sx, y: sy } });
+      }
       for (let i = 0; i < 7; i++) spawnMonster("oktopus");          // Oktopusse im Meer
       for (let i = 0; i < 6; i++)                                   // Kannibalen auf der Königsinsel
         spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);  // König-Boss
+    } else if (next === 4) {
+      world.level = 4;                                               // crazier: 2. König + mehr
+      for (let i = 0; i < 8; i++) spawnMonster("oktopus");
+      for (let i = 0; i < 8; i++)
+        spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
+      spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w*0.3, BIGISLAND.y + BIGISLAND.h/2);
+      spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w*0.7, BIGISLAND.y + BIGISLAND.h/2);
+      world.waveCd = 300;
     }
     world.treasures = freshTreasures();
     world.won = false;
@@ -394,7 +496,40 @@ function fireBolt(p, maxRange = 560) {
   }
   if (!tgt || bd > maxRange) return;
   const k = bd || 1;
-  world.bolts.push({ x: p.x, y: p.y-6, vx: (tgt.x-p.x)/k*9, vy: (tgt.y-p.y)/k*9, life: 80 });
+  const dmg = p.plane ? 1 + (p.planeLvl||0) : 1;     // Flugzeug-Upgrade = mehr Schaden
+  world.bolts.push({ x: p.x, y: p.y-6, vx: (tgt.x-p.x)/k*9, vy: (tgt.y-p.y)/k*9, life: 80, dmg });
+}
+// Schaufel werfen — Erst-Verteidigung zu Fuß (kostet 1 Schippe)
+function throwShovel(p) {
+  if (p.shovels <= 0 || p.shootCd > 0) return false;
+  let tgt = null, bd = 1e9;
+  for (const a of world.monsters) {
+    const d = Math.hypot(a.x-p.x, a.y-p.y);
+    if (d < bd) { bd = d; tgt = a; }
+  }
+  if (!tgt || bd > 280) return false;
+  const k = bd || 1;
+  p.shovels--; p.shootCd = 11;
+  world.bolts.push({ x: p.x, y: p.y-6, vx: (tgt.x-p.x)/k*8, vy: (tgt.y-p.y)/k*8, life: 60, dmg: 1, shovel: true });
+  return true;
+}
+// kompletter Neustart (nur Admin / leeres Spiel)
+function resetWorld() {
+  world.level = 1; world.won = false; world.kingDown = 0; world.wave = 0; world.waveCd = 700;
+  world.treasures = freshTreasures();
+  world.monsters = []; world.bolts = []; world.spears = []; world.pickups = [];
+  world.planes = []; world.subs = [];
+  world.boats = []; world.cars = [];
+  for (let i = 0; i < 4; i++) { const bx=620+i*150, by=SEA_BOT-55;
+    world.boats.push({ x:bx, y:by, driver:null, hp:6, maxhp:6, ic:0, dmg:0, base:{x:bx,y:by} }); }
+  for (let i = 0; i < 4; i++) { const cx=PARK.x+24+i*34, cy=PARK.y+40;
+    world.cars.push({ x:cx, y:cy, dir:1, driver:null, passenger:null, hp:8, maxhp:8, ic:0, dmg:0, mdl:i, base:{x:cx,y:cy} }); }
+  for (let i = 0; i < 9; i++) spawnMonster();
+  for (const p of Object.values(world.players)) {
+    p.boat=p.car=p.plane=p.sub=p.horse=null; p.mounted=false;
+    p.hearts=3; p.down=0; p.inv=120; p.coins=0; p.shovels=5; p.shovelLvl=1;
+    p.gun=false; p.planeLvl=0; p.x=HQ.x; p.y=HQ.y; p.hqResp=false;
+  }
 }
 
 // ---------- Tick ----------
@@ -402,12 +537,19 @@ function tick() {
   for (const p of Object.values(world.players)) {
     const edge = p.in.act && !p.lastAct;
     p.lastAct = p.in.act;
-    if (p.down > 0) { p.down--; if (p.down === 0) { p.hearts = 2; p.inv = 150; } continue; }
+    if (p.down > 0) {                       // ohnmächtig: wartet auf Rettung (Auto-Revive erst nach 30s)
+      p.down--;
+      if (p.down === 0) {
+        p.hearts = 2; p.inv = 150;
+        if (p.hqResp) { p.x = HQ.x; p.y = HQ.y; p.hqResp = false; }
+      }
+      continue;
+    }
     if (p.inv > 0) p.inv--;
     const dx = p.in.dx, dy = p.in.dy;
     if (dx || dy) {
       const l = Math.hypot(dx, dy) || 1;
-      const sp = p.plane ? 9.5 : p.car ? 7.4 : p.sub ? 7.0 : p.mounted ? 6.6 : p.boat ? 5.8 : 4.7;
+      const sp = p.plane ? 12 : p.car ? 9.2 : p.sub ? 8.2 : p.mounted ? 8.2 : p.boat ? 7.2 : 6.0;
       let nx = p.x + dx/l*sp, ny = p.y + dy/l*sp;
       if (dx) p.dir = dx > 0 ? 1 : -1;
       if (p.plane) {                               // fliegt frei über alles
@@ -427,74 +569,33 @@ function tick() {
         ny = Math.max(16, Math.min(SEA_BOT-6, ny));
         p.x = nx; p.y = ny; p.sub.x = nx; p.sub.y = ny; if (dx) p.sub.dir = p.dir;
       } else if (p.car) {
-        if (onRoad(nx, p.y)) p.x = nx;
-        if (onRoad(p.x, ny)) p.y = ny;
-        p.car.x = p.x; p.car.y = p.y; if (dx) p.car.dir = p.dir;
+        if (p.car.driver === p) {                    // nur der Fahrer lenkt
+          if (onRoad(nx, p.y)) p.x = nx;
+          if (onRoad(p.x, ny)) p.y = ny;
+          p.car.x = p.x; p.car.y = p.y; if (dx) p.car.dir = p.dir;
+        }
       } else {
         if (!blockedFoot(nx, p.y)) p.x = nx;
         if (!blockedFoot(p.x, ny)) p.y = ny;
       }
     }
+    if (p.car && p.car.driver !== p) { p.x = p.car.x; p.y = p.car.y; }   // Beifahrer folgt
     if (!p.boat && !p.car && !p.plane && !p.sub && isWater(p.x, p.y)) { const s = landNear(p.x, p.y); p.x = s.x; p.y = s.y; }
     if (p.horse && !p.mounted && isWater(p.horse.x, p.horse.y)) { const s = landNear(p.horse.x, p.horse.y); p.horse.x = s.x; p.horse.y = s.y; }
     if (edge) doAction(p);
-    // Knarre: verteidigt automatisch zu Fuß (kein Zielen nötig)
-    if (p.gunCd > 0) p.gunCd--;
-    if (p.gun && !p.car && !p.boat && p.down <= 0 && p.gunCd <= 0) {
-      const before = world.bolts.length;
-      fireBolt(p, 230);
-      if (world.bolts.length > before) p.gunCd = 16;   // ~0.8 s
-    }
+    if (p.shootCd > 0) p.shootCd--;     // Feuerraten-Limit
+    // gehaltener Aktionsknopf feuert weiter (nur Fahrzeug/Knarre, ohne andere Aktion auszulösen)
+    if (p.in.act && !edge && p.down <= 0 && (vehInfo(p) || p.gun)) tryShoot(p);
   }
 
-  // Auto schießt automatisch auf nahe Monster (kein Knopf -> Aktion = aussteigen)
-  for (const c of world.cars) {
-    if (c.cd > 0) c.cd--;
-    if (c.driver && c.cd <= 0) {
-      const before = world.bolts.length;
-      fireBolt(c.driver, 340);
-      if (world.bolts.length > before) c.cd = 12;   // ~0.6 s
-    }
-  }
-  // Flugzeug schießt automatisch (große Reichweite)
-  for (const pl of world.planes) {
-    if (pl.cd > 0) pl.cd--;
-    if (pl.driver && pl.cd <= 0) {
-      const before = world.bolts.length;
-      fireBolt(pl.driver, 420);
-      if (world.bolts.length > before) pl.cd = 10;  // ~0.5 s
-    }
-  }
-
-  // U-Boot schießt automatisch auf Oktopusse/Monster
-  for (const su of world.subs) {
-    if (su.cd > 0) su.cd--;
-    if (su.driver && su.cd <= 0) {
-      const before = world.bolts.length;
-      fireBolt(su.driver, 360);
-      if (world.bolts.length > before) su.cd = 12;
-    }
-  }
+  // Fahrzeug-Trefferschutz herunterzählen (verhindert Sofort-Tod durch Dauerbiss)
+  for (const arr of [world.boats, world.cars, world.planes, world.subs])
+    for (const v of arr) { if (v.ic > 0) v.ic--; if (v.dmg > 0) v.dmg--; }
   if (world.kingDown > 0) world.kingDown--;
 
-  // Boote/Autos folgen ihren Fahrern (oben gesetzt); freie bleiben stehen.
-  // "Boot kommt zu dir": stehen alle Boote weit weg und ein Spieler ist an
-  // einer Kueste ohne Boot in der Naehe, schwimmt das naechste langsam heran.
-  for (const p of Object.values(world.players)) {
-    if (p.boat || p.car) continue;
-    if (p.y > SEA_BOT + 40) continue;                       // nur nahe Wasser
-    let near = false, nb = null, nbd = 1e9;
-    for (const b of world.boats) {
-      const d = Math.hypot(b.x-p.x, b.y-p.y);
-      if (!b.driver && d < 120) near = true;
-      if (!b.driver && d < nbd) { nbd = d; nb = b; }
-    }
-    if (!near && nb) {
-      const k = nbd || 1;
-      nb.x += (p.x - nb.x)/k * 2.0;
-      nb.y += Math.max(16, Math.min(SEA_BOT-6, p.y - 20) - nb.y) * 0.04;
-    }
-  }
+  // (Freie Boote bleiben einfach stehen — kein Nachschwimmen mehr, das
+  //  driftete unkontrolliert. Beim Aussteigen wird das Boot direkt
+  //  neben den Spieler ans Wasser gesetzt, siehe doAction.)
 
   // Monster
   for (const a of world.monsters) {
@@ -512,32 +613,44 @@ function tick() {
       let tgt = null, td = 1e9;
       for (const p of Object.values(world.players)) {
         if (p.inv > 0 || p.down > 0) continue;
-        if (a.sea) {                                  // Oktopus: jagt Spieler im/am Wasser
+        if (inHQ(p.x, p.y)) continue;                 // Headquarter ist sicher
+        if (a.sea) {                                  // Oktopus: Spieler im/am Wasser (auch Boot/U-Boot)
           if (!(p.boat || p.sub || p.y < SEA_BOT + 50)) continue;
-        } else {                                      // Landmonster: keine Fahrzeuge
-          if (p.boat || p.car || p.plane || p.mounted || p.sub) continue;
+        } else {                                      // Landmonster: auch Autos angreifbar; Flugzeug fliegt, Pferd flieht
+          if (p.plane || p.mounted) continue;
         }
         const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
       }
       // aggressiv: große Reichweite, halten hartnäckig drauf
       const RNG = { flatterer:360, brocken:420, oktopus:300, kannibale:340, koenig:420 };
       const ACC = { flatterer:.34, brocken:.26, oktopus:.24, kannibale:.30, koenig:.18 };
-      const MX  = { flatterer:3.2, brocken:2.3, oktopus:2.4, kannibale:2.7, koenig:1.5 };
+      const MX  = { flatterer:4.4, brocken:3.2, oktopus:3.6, kannibale:3.9, koenig:2.4 };
       const range = RNG[a.type] || 320;
       if (tgt && td < range) {
         a.mad = Math.min(1, a.mad + .05);
         const acc = ACC[a.type] || .28;
         a.vx += (tgt.x-a.x)/td*acc; a.vy += (tgt.y-a.y)/td*acc;
         if (td < 26*a.r) {
-          tgt.hearts--; tgt.inv = 120;
-          if (!tgt.boat && !tgt.sub) {                // im Boot/U-Boot: nur Schaden, kein Wegschleudern
+          const tv = tgt.boat ? { v:tgt.boat, k:"boat", arr:world.boats }
+                   : tgt.car  ? { v:tgt.car,  k:"car",  arr:world.cars }
+                   : tgt.sub  ? { v:tgt.sub,  k:"sub",  arr:world.subs }
+                   : tgt.plane? { v:tgt.plane,k:"plane",arr:world.planes } : null;
+          if (tv) {                                   // Fahrzeug nimmt Schaden
+            if (tv.v.ic <= 0) {
+              tv.v.hp--; tv.v.ic = 22; tv.v.dmg = 10;
+              if (a.sea) { tv.v.x += (a.x-tv.v.x)*0.05; tv.v.y += (a.y-tv.v.y)*0.03; } // Oktopus zieht
+              if (tv.v.hp <= 0) destroyVehicle(tv.v, tv.k, tv.arr);
+            }
+            a.flee = 14;
+          } else {                                    // Spieler zu Fuß
+            tgt.hearts--; tgt.inv = 120;
             const kb = (a.type === "brocken" || a.type === "koenig") ? 40 : 22;
             const k = Math.hypot(tgt.x-a.x, tgt.y-a.y)||1;
             tgt.x = Math.max(16, Math.min(WORLD_W-16, tgt.x+(tgt.x-a.x)/k*kb));
             tgt.y = Math.max(SEA_BOT+8, Math.min(WORLD_H-12, tgt.y+(tgt.y-a.y)/k*kb));
+            if (tgt.hearts <= 0) goDown(tgt);   // aus Pferd/Fahrzeug werfen, 30s bis Auto-Revive
+            a.flee = (a.type === "brocken" || a.type === "koenig") ? 8 : 20;
           }
-          if (tgt.hearts <= 0) { tgt.hearts = 0; tgt.down = 240; }
-          a.flee = (a.type === "brocken" || a.type === "koenig") ? 8 : 20;
         }
         mx = MX[a.type] || 2.6;
       } else {
@@ -549,17 +662,66 @@ function tick() {
     const sp = Math.hypot(a.vx, a.vy);
     if (sp > mx) { a.vx = a.vx/sp*mx; a.vy = a.vy/sp*mx; }
     let nx = a.x+a.vx, ny = a.y+a.vy;
-    if (a.sea) {                                      // Oktopus bleibt im Wasser
-      if (ny < 20) { ny = 20; a.vy *= -1; }
-      if (ny > SEA_BOT-12) { ny = SEA_BOT-12; a.vy *= -1; }
+    if (a.island) {                                   // König & Kannibalen verteidigen die Insel
+      const ix0 = BIGISLAND.x+16, ix1 = BIGISLAND.x+BIGISLAND.w-16;
+      const iy0 = BIGISLAND.y+16, iy1 = BIGISLAND.y+BIGISLAND.h-16;
+      if (nx < ix0) { nx = ix0; a.vx = Math.abs(a.vx); }
+      if (nx > ix1) { nx = ix1; a.vx = -Math.abs(a.vx); }
+      if (ny < iy0) { ny = iy0; a.vy = Math.abs(a.vy); }
+      if (ny > iy1) { ny = iy1; a.vy = -Math.abs(a.vy); }
+      a.x = nx; a.y = ny;
     } else {
-      if (ny < SAND_BOT+12) { ny = SAND_BOT+12; a.vy *= -1; }
-      if (ny > WORLD_H-14) { ny = WORLD_H-14; a.vy *= -1; }
+      if (a.sea) {                                    // Oktopus bleibt im Wasser
+        if (ny < 20) { ny = 20; a.vy *= -1; }
+        if (ny > SEA_BOT-12) { ny = SEA_BOT-12; a.vy *= -1; }
+      } else {
+        if (ny < SAND_BOT+12) { ny = SAND_BOT+12; a.vy *= -1; }
+        if (ny > WORLD_H-14) { ny = WORLD_H-14; a.vy *= -1; }
+      }
+      if (nx < 14 || nx > WORLD_W-14) a.vx *= -1;
+      a.x = Math.max(14, Math.min(WORLD_W-14, nx)); a.y = ny;
     }
-    if (nx < 14 || nx > WORLD_W-14) a.vx *= -1;
-    a.x = Math.max(14, Math.min(WORLD_W-14, nx)); a.y = ny;
     if (a.pop > 0) a.pop--;
+    // König wehrt sich: wirft regelmäßig Speere (trifft Spieler UND Fahrzeuge)
+    if (a.type === "koenig") {
+      a.spearCd = (a.spearCd || 0) - 1;
+      if (a.spearCd <= 0) {
+        let st = null, sd = 1e9;
+        for (const p of Object.values(world.players)) {
+          if (p.down > 0 || inHQ(p.x, p.y)) continue;
+          const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < sd) { sd = d; st = p; }
+        }
+        if (st && sd < 640) {
+          const k = sd || 1;
+          world.spears.push({ x: a.x, y: a.y-20, vx: (st.x-a.x)/k*7, vy: (st.y-a.y)/k*7, life: 95 });
+          a.spearCd = 40;
+        } else a.spearCd = 18;
+      }
+    }
   }
+
+  // Boss-Speere — Schaden an Spielern UND Fahrzeugen
+  for (let i = world.spears.length-1; i >= 0; i--) {
+    const s = world.spears[i]; s.x += s.vx; s.y += s.vy; s.life--;
+    let hit = false;
+    for (const p of Object.values(world.players)) {
+      if (p.down > 0 || p.inv > 0 || inHQ(p.x, p.y)) continue;
+      if (Math.hypot(p.x-s.x, p.y-s.y) < 20) {
+        const tv = p.boat ? { v:p.boat, k:"boat", arr:world.boats }
+                 : p.car  ? { v:p.car,  k:"car",  arr:world.cars }
+                 : p.sub  ? { v:p.sub,  k:"sub",  arr:world.subs }
+                 : p.plane? { v:p.plane,k:"plane",arr:world.planes } : null;
+        if (tv) { if (tv.v.ic <= 0) { tv.v.hp--; tv.v.ic = 22; tv.v.dmg = 10;
+            if (tv.v.hp <= 0) destroyVehicle(tv.v, tv.k, tv.arr); } }
+        else { p.hearts--; p.inv = 110; if (p.hearts <= 0) goDown(p); }
+        hit = true; break;
+      }
+    }
+    if (hit || s.life <= 0 || s.x<0||s.x>WORLD_W||s.y<0||s.y>WORLD_H) world.spears.splice(i, 1);
+  }
+
+  // Schatz-Fund-Effekt herunterzählen
+  for (const t of world.treasures) if (t.fx > 0) t.fx--;
 
   // Schüsse
   for (let i = world.bolts.length-1; i >= 0; i--) {
@@ -569,17 +731,18 @@ function tick() {
     for (let j = world.monsters.length-1; j >= 0; j--) {
       const a = world.monsters[j];
       if (Math.hypot(a.x-b.x, a.y-b.y) < 18*a.r) {
-        a.hp--; a.pop = 12; hit = true;
+        a.hp -= (b.dmg || 1); a.pop = 12; hit = true;
         const k = Math.hypot(a.x-b.x, a.y-b.y)||1;
         // wird angeschossen, kommt aber gleich wieder (aggressiv)
-        a.flee = a.type === "brocken" ? 0 : 14;
+        a.flee = 0;                                  // beim Beschuss NICHT fliehen, weiter jagen
         a.vx = (a.x-b.x)/k*2.0; a.vy = (a.y-b.y)/k*2.0;
         if (a.hp <= 0) {
           const at = a.type;
-          if (at === "koenig") {                      // Boss besiegt: Insel erobert!
+          if (at === "koenig") {                      // Boss besiegt: Insel erobert! Neuer Boss kommt
             world.kingDown = 600;
             for (const pp of Object.values(world.players)) pp.coins += 25;
             world.monsters.splice(j, 1);
+            setTimeout(() => spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2), 9000);
           } else if (a.sea) {                         // Oktopus -> Münzen (im Meer)
             let np = null, nd = 1e9;
             for (const pp of Object.values(world.players)) {
@@ -593,12 +756,11 @@ function tick() {
             for (let s = 0; s < n; s++)
               world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800 });
             world.monsters.splice(j, 1);
-            // Kannibalen nur nachspawnen, solange der König lebt
-            if (!(at === "kannibale" && world.kingDown > 0))
-              setTimeout(() => spawnMonster(
-                at === "kannibale" ? "kannibale" : undefined,
-                at === "kannibale" ? BIGISLAND.x + rnd(40, BIGISLAND.w-40) : undefined,
-                at === "kannibale" ? BIGISLAND.y + rnd(40, BIGISLAND.h-30) : undefined), 4000);
+            // Kannibalen kommen immer wieder (Insel bleibt umkämpft)
+            setTimeout(() => spawnMonster(
+              at === "kannibale" ? "kannibale" : undefined,
+              at === "kannibale" ? BIGISLAND.x + rnd(40, BIGISLAND.w-40) : undefined,
+              at === "kannibale" ? BIGISLAND.y + rnd(40, BIGISLAND.h-30) : undefined), 4000);
           }
         }
         break;
@@ -624,6 +786,15 @@ function tick() {
     }
   }
 
+  // Monsterwellen — kommen regelmäßig, werden pro Level stärker
+  if (world.wave > 0) world.wave--;
+  if (Object.keys(world.players).length > 0 && --world.waveCd <= 0) {
+    const n = 2 + world.level + Math.floor(Math.random()*2);
+    for (let i = 0; i < n; i++) spawnMonster();
+    world.wave = 90;                                 // "Welle!"-Banner ~4.5s
+    world.waveCd = Math.max(360, 800 - world.level*90);
+  }
+
   // Eiswagen faehrt die Strasse entlang
   const tr = world.truck;
   tr.x += tr.dir * 1.6;
@@ -639,34 +810,50 @@ function broadcast() {
     players: Object.values(world.players).map(p => ({
       id: p.id, n: p.name, x: Math.round(p.x), y: Math.round(p.y),
       d: p.dir, c: p.color, h: p.hearts, co: p.coins, sh: p.shovels,
-      sl: p.shovelLvl, gn: p.gun, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
+      sl: p.shovelLvl, gn: p.gun, plv: p.planeLvl, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
       mo: p.mounted,
       ho: p.horse ? { x: Math.round(p.horse.x), y: Math.round(p.horse.y), d: p.horse.dir } : null,
-      dn: p.down > 0, iv: p.inv > 0,
+      dn: p.down > 0, iv: p.inv > 0, fx: p.fx || null,
     })),
     won: world.won, goal: WIN_GOAL, level: world.level, kingDown: world.kingDown > 0,
-    pl: world.planes.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), d: p.dir, dr: !!p.driver })),
-    su: world.subs.map(s => ({ x: Math.round(s.x), y: Math.round(s.y), d: s.dir, dr: !!s.driver })),
-    tr: world.treasures.map(t => ({ x: t.x, y: t.y, f: t.found, cv: !!t.cave })),
-    bo: world.boats.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), dr: !!b.driver })),
-    ca: world.cars.map(c => ({ x: Math.round(c.x), y: Math.round(c.y), d: c.dir, dr: !!c.driver })),
+    admin: world.adminId, wave: world.wave > 0,
+    pl: world.planes.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), d: p.dir, dr: !!p.driver, di: p.driver?p.driver.id:null, dC: p.driver?p.driver.color:null, hp: p.hp, mh: p.maxhp, dm: p.dmg })),
+    su: world.subs.map(s => ({ x: Math.round(s.x), y: Math.round(s.y), d: s.dir, dr: !!s.driver, di: s.driver?s.driver.id:null, dC: s.driver?s.driver.color:null, hp: s.hp, mh: s.maxhp, dm: s.dmg })),
+    tr: world.treasures.map(t => ({ x: t.x, y: t.y, f: t.found, cv: !!t.cave, fx: t.fx || 0 })),
+    bo: world.boats.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), dr: !!b.driver, di: b.driver?b.driver.id:null, dC: b.driver?b.driver.color:null, hp: b.hp, mh: b.maxhp, dm: b.dmg })),
+    ca: world.cars.map(c => ({ x: Math.round(c.x), y: Math.round(c.y), d: c.dir, dr: !!c.driver, di: c.driver?c.driver.id:null, dC: c.driver?c.driver.color:null, pi: c.passenger?c.passenger.id:null, pC: c.passenger?c.passenger.color:null, hp: c.hp, mh: c.maxhp, dm: c.dmg, ml: c.mdl||0 })),
     mo: world.monsters.map(a => ({ x: Math.round(a.x), y: Math.round(a.y), tp: a.type, hp: a.hp, mh: a.maxhp, md: a.mad, po: a.pop })),
+    sr: world.spears.map(s => ({ x: Math.round(s.x), y: Math.round(s.y) })),
     bl: world.bolts.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) })),
     bu: world.bushes.map(b => ({ x: b.x, y: b.y, r: b.ripe })),
     pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
   };
+  for (const p of Object.values(world.players)) p.fx = null;   // Effekt ist Einmal-Puls
   const msg = encodeFrame(JSON.stringify(snap));
   for (const c of clients) if (c.alive) { try { c.socket.write(msg); } catch (_) { closeClient(c); } }
 }
 
-// Boote & Autos einmalig platzieren
-for (let i = 0; i < 4; i++)
-  world.boats.push({ x: 620 + i*150, y: SEA_BOT-55, driver: null });
-for (let i = 0; i < 4; i++)
-  world.cars.push({ x: PARK.x + 24 + i*34, y: PARK.y + 40, dir: 1, driver: null, cd: 0 });
+// Boote & Autos einmalig platzieren (mit Leben + Heimat-Basis für Respawn)
+for (let i = 0; i < 4; i++) {
+  const bx = 620 + i*150, by = SEA_BOT-55;
+  world.boats.push({ x: bx, y: by, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: bx, y: by } });
+}
+for (let i = 0; i < 4; i++) {
+  const cx = PARK.x + 22 + i*36, cy = PARK.y + 40;
+  world.cars.push({ x: cx, y: cy, dir: 1, driver: null, passenger: null, hp: 8, maxhp: 8, ic: 0, dmg: 0, mdl: i, base: { x: cx, y: cy } });
+}
 
 setInterval(tick, 50);   // 20 Hz
+
+// inaktive Spieler (~4 Min ohne Bewegung/Aktion) entfernen
+setInterval(() => {
+  const now = Date.now();
+  for (const c of clients) {
+    const pl = c.player && world.players[c.player];
+    if (pl && now - pl.lastActive > 240000) closeClient(c);
+  }
+}, 30000);
 
 server.listen(PORT, HOST, () =>
   console.log("Piraten-Suche listening on " + HOST + ":" + PORT));
