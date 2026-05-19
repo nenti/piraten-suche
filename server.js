@@ -800,14 +800,16 @@ function tick() {
   tr.x += tr.dir * 1.6;
   if (tr.x > WORLD_W-40) tr.dir = -1;
   if (tr.x < 40) tr.dir = 1;
-
-  broadcast();
 }
 
 function broadcast() {
+  let anyClient = false;
+  for (const c of clients) if (c.alive) { anyClient = true; break; }
+  if (!anyClient) return;                       // niemand verbunden -> kein Snapshot bauen/serialisieren
+  const pls = Object.values(world.players);
   const snap = {
     t: "s",
-    players: Object.values(world.players).map(p => ({
+    players: pls.map(p => ({
       id: p.id, n: p.name, x: Math.round(p.x), y: Math.round(p.y),
       d: p.dir, c: p.color, h: p.hearts, co: p.coins, sh: p.shovels,
       sl: p.shovelLvl, gn: p.gun, plv: p.planeLvl, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
@@ -829,7 +831,7 @@ function broadcast() {
     pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
   };
-  for (const p of Object.values(world.players)) p.fx = null;   // Effekt ist Einmal-Puls
+  for (const p of pls) p.fx = null;   // Effekt ist Einmal-Puls
   const msg = encodeFrame(JSON.stringify(snap));
   for (const c of clients) if (c.alive) { try { c.socket.write(msg); } catch (_) { closeClient(c); } }
 }
@@ -844,7 +846,9 @@ for (let i = 0; i < 4; i++) {
   world.cars.push({ x: cx, y: cy, dir: 1, driver: null, passenger: null, hp: 8, maxhp: 8, ic: 0, dmg: 0, mdl: i, base: { x: cx, y: cy } });
 }
 
-setInterval(tick, 50);   // 20 Hz
+const BROADCAST_MS = 80;               // ~12.5 Hz Netz-Snapshots (Physik bleibt 20 Hz; Client interpoliert)
+setInterval(tick, 50);                 // Physik: 20 Hz
+setInterval(broadcast, BROADCAST_MS);  // Netz entkoppelt vom Sim-Tick -> kein Burst pro Tick
 
 // inaktive Spieler (~4 Min ohne Bewegung/Aktion) entfernen
 setInterval(() => {
