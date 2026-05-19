@@ -98,7 +98,7 @@ const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 let DPR = 1, VW = 0, VH = 0;
 let SAFE = { top:0, right:0, bottom:0, left:0 };
 function resize(){
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  const _dpr0 = Math.min(2, window.devicePixelRatio || 1);
   const cs = getComputedStyle(document.getElementById("safe"));
   SAFE = {
     top:    Math.round(parseFloat(cs.paddingTop)    || 0),
@@ -111,7 +111,11 @@ function resize(){
   const r = cv.getBoundingClientRect();
   VW = Math.round(r.width)  || window.innerWidth;
   VH = Math.round(r.height) || window.innerHeight;
-  cv.width = VW*DPR; cv.height = VH*DPR;
+  // Pixel-Budget: auf grossen/Retina-Fenstern DPR senken, statt Millionen
+  // Pixel pro Frame zu fuellen — groesster Frontend-Kostenfaktor dort.
+  const PXCAP = 2600000;
+  DPR = (VW*VH*_dpr0*_dpr0 > PXCAP) ? Math.max(1, Math.sqrt(PXCAP/(VW*VH))) : _dpr0;
+  cv.width = Math.round(VW*DPR); cv.height = Math.round(VH*DPR);
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 addEventListener("resize", resize);
