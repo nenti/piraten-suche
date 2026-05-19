@@ -851,7 +851,8 @@ for (let i = 0; i < 4; i++) {
   world.cars.push({ x: cx, y: cy, dir: 1, driver: null, passenger: null, hp: 8, maxhp: 8, ic: 0, dmg: 0, mdl: i, base: { x: cx, y: cy } });
 }
 
-const BROADCAST_MS = 80;               // ~12.5 Hz Netz-Snapshots (Physik bleibt 20 Hz; Client interpoliert)
+const BROADCAST_MS = 50;               // 20 Hz Netz-Snapshots = Sim-Takt: glatte Monster/Schuss-
+                                       // Bewegung. (CPU unkritisch: voller Kern, ~1-2% Last.)
 setInterval(tick, 50);                 // Physik: 20 Hz
 setInterval(broadcast, BROADCAST_MS);  // Netz entkoppelt vom Sim-Tick -> kein Burst pro Tick
 

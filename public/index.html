@@ -130,7 +130,8 @@ function showControls(on){
 let ws, myId = null, W = 3600, H = 1100, statics = null;
 const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], sr:[], bu:[], pk:[], pl:[], su:[], tk:{x:0,y:0}, won:false, goal:6, level:1, kingDown:false };
 let snap = EMPTY, prevSnap = EMPTY, snapAt = 0;
-const SNAP_MS = 50;                       // Server tickt mit 20 Hz
+const SNAP_MS = 50;                       // Startwert; snapDt misst das echte Intervall
+let snapDt = SNAP_MS;                     // gemessenes Snapshot-Intervall (glättet, egal welche Server-Rate)
 const input = { dx:0, dy:0, act:false };
 
 document.getElementById("go").onclick = () => {
@@ -148,7 +149,11 @@ function connect(name){
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.t === "init"){ myId=m.id; W=m.W; H=m.H; statics=m.statics; }
-    else if (m.t === "s"){ prevSnap = snap===EMPTY ? m : snap; snap = m; snapAt = performance.now(); }
+    else if (m.t === "s"){
+      const now = performance.now();
+      if (snap !== EMPTY){ const d = now - snapAt; if (d > 16 && d < 500) snapDt = snapDt*0.8 + d*0.2; }
+      prevSnap = snap===EMPTY ? m : snap; snap = m; snapAt = now;
+    }
   };
   ws.onclose = () => setTimeout(()=>connect(name), 1500);
   setInterval(sendInput, 33);          // Heartbeat
@@ -288,7 +293,7 @@ let selfS = null;                          // geglättete eigene Position
 let iceFx = 0;                             // Eis-Animations-Timer
 let hurtFx = 0, prevHearts = 3;            // Treffer-Flash
 function interp(){
-  const f = Math.min(1, (performance.now()-snapAt)/SNAP_MS);
+  const f = Math.min(1, (performance.now()-snapAt)/snapDt);
   const pp = {}; for (const q of prevSnap.players) pp[q.id]=q;
   IPL = snap.players.map(p=>{
     if (p.id === myId) {                     // eigener Spieler: weich nachziehen
@@ -324,6 +329,7 @@ let camX=0, camY=0;
 // Viewport-Culling: alles ausserhalb des sichtbaren Kamera-Rechtecks gar nicht
 // erst zeichnen. Begrenzt die Frame-Kosten auf sichtbare statt alle Welt-Objekte.
 const onScr=(x,y,m=90)=>x>camX-m&&x<camX+VW+m&&y>camY-m&&y<camY+VH+m;
+let _bg=null;   // Hintergrund-Gradienten einmal cachen statt pro Frame neu bauen
 function camera(){
   const me = IPL.find(p=>p.id===myId);
   const tx = me ? me.x : W/2, ty = me ? me.y : H/2;
@@ -389,19 +395,19 @@ function draw(){
   ctx.save(); ctx.translate(-camX,-camY);
   // Hintergrund
   const SEA=260,SAND=380;
-  let g=ctx.createLinearGradient(0,0,0,SEA);
-  g.addColorStop(0,"#1f7fa8");g.addColorStop(1,"#54bcdb");
-  ctx.fillStyle=g;ctx.fillRect(0,0,W,SEA);
+  if(!_bg || _bg.h!==H){
+    _bg={ h:H };
+    _bg.sea=ctx.createLinearGradient(0,0,0,SEA);   _bg.sea.addColorStop(0,"#1f7fa8");_bg.sea.addColorStop(1,"#54bcdb");
+    _bg.sand=ctx.createLinearGradient(0,SEA,0,SAND);_bg.sand.addColorStop(0,"#efdcab");_bg.sand.addColorStop(1,"#dcc173");
+    _bg.grass=ctx.createLinearGradient(0,SAND,0,H); _bg.grass.addColorStop(0,"#46a05f");_bg.grass.addColorStop(1,"#327a48");
+  }
+  ctx.fillStyle=_bg.sea;ctx.fillRect(0,0,W,SEA);
   ctx.strokeStyle="rgba(255,255,255,.4)";ctx.lineWidth=2;
   for(let i=0;i<6;i++){ctx.beginPath();
     for(let x=Math.max(0,camX-20);x<camX+VW+20;x+=26)
       ctx.lineTo(x,22+i*26+Math.sin((x+t*1.6+i*40)/40)*5);ctx.stroke();}
-  let sg=ctx.createLinearGradient(0,SEA,0,SAND);
-  sg.addColorStop(0,"#efdcab");sg.addColorStop(1,"#dcc173");
-  ctx.fillStyle=sg;ctx.fillRect(0,SEA,W,SAND-SEA);
-  let gg=ctx.createLinearGradient(0,SAND,0,H);
-  gg.addColorStop(0,"#46a05f");gg.addColorStop(1,"#327a48");
-  ctx.fillStyle=gg;ctx.fillRect(0,SAND,W,H-SAND);
+  ctx.fillStyle=_bg.sand;ctx.fillRect(0,SEA,W,SAND-SEA);
+  ctx.fillStyle=_bg.grass;ctx.fillRect(0,SAND,W,H-SAND);
   if(statics){
     // Strasse + Parkplatz + Shop
     const rd=statics.road;
