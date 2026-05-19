@@ -379,25 +379,29 @@ function doAction(p) {
       return;
     }
   }
-  // 5. Schießen (manuell) — im Fahrzeug oder mit Knarre zu Fuß
+  // 5. Ein-/Aufsteigen (zu Fuß ODER vom Pferd) — VOR dem Schießen, sonst
+  //    blockt eine gekaufte Knarre dauerhaft jedes Einsteigen. Nur wer
+  //    nicht selbst schon ein Fahrzeug fährt (vehInfo) steigt hier ein.
+  if (!vehInfo(p)) {
+    for (const b of world.boats)
+      if (!b.driver && dist(b.x-p.x, b.y-p.y) < 95) { b.driver = p; p.boat = b; p.mounted = false; p.x=b.x; p.y=b.y; return; }
+    for (const cr of world.cars)
+      if (dist(cr.x-p.x, cr.y-p.y) < 92) {
+        if (!cr.driver)        { cr.driver = p;    p.car = cr; p.mounted = false; p.x=cr.x; p.y=cr.y; return; }
+        if (!cr.passenger)     { cr.passenger = p; p.car = cr; p.mounted = false; p.x=cr.x; p.y=cr.y; return; }
+      }
+    for (const pl of world.planes)
+      if (!pl.driver && dist(pl.x-p.x, pl.y-p.y) < 100) { pl.driver = p; p.plane = pl; p.mounted = false; p.x=pl.x; p.y=pl.y; return; }
+    for (const su of world.subs)
+      if (!su.driver && dist(su.x-p.x, su.y-p.y) < 100) { su.driver = p; p.sub = su; p.mounted = false; p.x=su.x; p.y=su.y; return; }
+    // Eigenes Pferd besteigen (wenn man gerade nicht reitet)
+    if (p.horse && !p.mounted && dist(p.horse.x-p.x, p.horse.y-p.y) < 70) {
+      p.mounted = true; p.x = p.horse.x; p.y = p.horse.y; return;
+    }
+  }
+  // 6. Schießen (manuell) — im Fahrzeug oder mit Knarre zu Fuß
   if (tryShoot(p)) return;
   if (nearShop(p.x, p.y) || nearRanch(p.x, p.y)) return;   // Menüs erledigen das
-  // 6. Einsteigen (zu Fuß)
-  for (const b of world.boats)
-    if (!b.driver && dist(b.x-p.x, b.y-p.y) < 95) { b.driver = p; p.boat = b; p.x=b.x; p.y=b.y; return; }
-  for (const cr of world.cars)
-    if (dist(cr.x-p.x, cr.y-p.y) < 92) {
-      if (!cr.driver)        { cr.driver = p;    p.car = cr; p.x=cr.x; p.y=cr.y; return; }
-      if (!cr.passenger)     { cr.passenger = p; p.car = cr; p.x=cr.x; p.y=cr.y; return; }
-    }
-  for (const pl of world.planes)
-    if (!pl.driver && dist(pl.x-p.x, pl.y-p.y) < 100) { pl.driver = p; p.plane = pl; p.x=pl.x; p.y=pl.y; return; }
-  for (const su of world.subs)
-    if (!su.driver && dist(su.x-p.x, su.y-p.y) < 100) { su.driver = p; p.sub = su; p.x=su.x; p.y=su.y; return; }
-  // 7. Eigenes Pferd besteigen
-  if (p.horse && dist(p.horse.x-p.x, p.horse.y-p.y) < 70) {
-    p.mounted = true; p.x = p.horse.x; p.y = p.horse.y; return;
-  }
   // 8. Schaufel werfen (Erst-Verteidigung) — sonst Monster verscheuchen
   if (throwShovel(p)) return;
   for (const a of world.monsters) {
@@ -621,8 +625,8 @@ function tick() {
         if (inHQ(p.x, p.y)) continue;                 // Headquarter ist sicher
         if (a.sea) {                                  // Oktopus: Spieler im/am Wasser (auch Boot/U-Boot)
           if (!(p.boat || p.sub || p.y < SEA_BOT + 50)) continue;
-        } else {                                      // Landmonster: auch Autos angreifbar; Flugzeug fliegt, Pferd flieht
-          if (p.plane || p.mounted) continue;
+        } else {                                      // Landmonster: auch Autos & Pferd-Reiter angreifbar; nur Flugzeug fliegt
+          if (p.plane) continue;
         }
         const d = dist(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
       }

@@ -453,6 +453,7 @@ function draw(){
       ctx.fillText("🏰 Basis (sicher)",hq.x,hq.y-R+22);ctx.textAlign="left";
     }
     for(const is of statics.islands){
+      if(is.x+is.w<camX-40||is.x>camX+VW+40||is.y+is.h<camY-60||is.y>camY+VH+40) continue;
       ctx.fillStyle="#e7d49b";rr(is.x,is.y,is.w,is.h,40);
       ctx.fillStyle="#3a8a55";rr(is.x+30,is.y+18,is.w-60,is.h-42,28);
       const cx=is.x+is.w/2,cy=is.y+is.h*.42;
@@ -474,12 +475,14 @@ function draw(){
     ctx.fillStyle="#13181f";rr(cv2.x,cv2.y,cv2.w,cv2.h,20);
     ctx.fillStyle="#7a746b";ctx.font="15px Trebuchet MS";ctx.fillText("Gruselhöhle",cv2.x+cv2.w/2-42,cv2.y-12);
     for(const h of statics.houses){
+      if(!onScr(h.x+h.w/2,h.y+h.h/2,Math.max(h.w,h.h))) continue;
       ctx.fillStyle="#d3ac82";rr(h.x,h.y+32,h.w,h.h-32,4);
       ctx.fillStyle="#9c3b2e";ctx.beginPath();ctx.moveTo(h.x-10,h.y+38);ctx.lineTo(h.x+h.w/2,h.y-8);ctx.lineTo(h.x+h.w+10,h.y+38);ctx.fill();
       ctx.fillStyle="#5c3417";ctx.fillRect(h.x+h.w/2-14,h.y+h.h-40,28,40);
       ctx.fillStyle="#ffe9a8";ctx.fillRect(h.x+16,h.y+52,22,22);
     }
     for(const tt of statics.trees){
+      if(!onScr(tt.x,tt.y,44)) continue;
       ctx.fillStyle="rgba(0,0,0,.18)";ctx.beginPath();ctx.ellipse(tt.x,tt.y+34,24,7,0,0,7);ctx.fill();
       ctx.fillStyle="#6b3f1d";ctx.fillRect(tt.x-7,tt.y+8,14,28);
       ctx.fillStyle="#2f7a3e";for(const o of[[0,-15,28],[-20,4,22],[20,4,22],[0,9,24]]){ctx.beginPath();ctx.arc(tt.x+o[0],tt.y+o[1],o[2],0,7);ctx.fill();}
