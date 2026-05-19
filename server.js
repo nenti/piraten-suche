@@ -140,7 +140,11 @@ const WORLD_W = 3600, WORLD_H = 1100;
 const SEA_BOT = 260, SAND_BOT = 380;
 const HQ = { x: 700, y: 430 };                    // Headquarter / Spawn-Basis (sicher)
 function hqR() { return 110 + world.level * 30; }  // wächst pro Level
-function inHQ(x, y) { return Math.hypot(x-HQ.x, y-HQ.y) < hqR(); }
+// 2D-Distanz: deutlich schneller als Math.hypot in V8 (kein Variadic/Overflow-Handling),
+// identisches Ergebnis bei Spiel-Koordinaten. Heisser Pfad: pro Tick x Monster x Schuss.
+const dist = (x, y) => Math.sqrt(x*x + y*y);
+
+function inHQ(x, y) { return dist(x-HQ.x, y-HQ.y) < hqR(); }
 const ROAD_Y = WORLD_H - 210, ROAD_H = 96;
 const PARK = { x: 560, y: ROAD_Y - 80, w: 160, h: 80 };
 const SHOP = { x: 300, y: 470, w: 110, h: 90 };               // Shop (Schippe/Knarre)
@@ -209,8 +213,8 @@ function onRoad(x, y){
   return x>PARK.x&&x<PARK.x+PARK.w&&y>PARK.y&&y<PARK.y+PARK.h;
 }
 function onPark(x, y){ return x>PARK.x&&x<PARK.x+PARK.w&&y>PARK.y&&y<PARK.y+PARK.h; }
-function nearShop(x, y){ return Math.hypot(SHOP.x+SHOP.w/2-x, SHOP.y+SHOP.h/2-y) < 70; }
-function nearRanch(x, y){ return Math.hypot(RANCH.x+RANCH.w/2-x, RANCH.y+RANCH.h/2-y) < 90; }
+function nearShop(x, y){ return dist(SHOP.x+SHOP.w/2-x, SHOP.y+SHOP.h/2-y) < 70; }
+function nearRanch(x, y){ return dist(RANCH.x+RANCH.w/2-x, RANCH.y+RANCH.h/2-y) < 90; }
 function blockedFoot(x, y){
   if (x<14||x>WORLD_W-14||y>WORLD_H-12) return true;
   if (isWater(x, y)) return true;
@@ -325,7 +329,7 @@ function nearestUnfound(x, y) {
   let best = null, bd = 1e9;
   for (const tr of world.treasures) {
     if (tr.found) continue;
-    const d = Math.hypot(tr.x-x, tr.y-y);
+    const d = dist(tr.x-x, tr.y-y);
     if (d < bd) { bd = d; best = tr; }
   }
   return { tr: best, d: bd };
@@ -353,16 +357,16 @@ function tryShoot(p) {
 function doAction(p) {
   // 1. Mitspieler wiederbeleben
   for (const o of Object.values(world.players))
-    if (o !== p && o.down > 0 && Math.hypot(o.x-p.x, o.y-p.y) < 50) {
+    if (o !== p && o.down > 0 && dist(o.x-p.x, o.y-p.y) < 50) {
       o.down = 0; o.hearts = 2; o.inv = 120; return;
     }
   // 2. Eis am Eiswagen (auch aus dem Fahrzeug!) -> heilen
-  if (Math.hypot(world.truck.x-p.x, world.truck.y-p.y) < 60 && p.hearts < 3 && p.coins >= 2) {
+  if (dist(world.truck.x-p.x, world.truck.y-p.y) < 60 && p.hearts < 3 && p.coins >= 2) {
     p.coins -= 2; p.hearts = Math.min(3, p.hearts + 2); p.fx = "ice"; return;
   }
   // 3. Beere essen
   for (const bu of world.bushes)
-    if (bu.ripe && p.hearts < 3 && Math.hypot(bu.x-p.x, bu.y-p.y) < 40) {
+    if (bu.ripe && p.hearts < 3 && dist(bu.x-p.x, bu.y-p.y) < 40) {
       bu.ripe = false; bu.regrow = 600; p.hearts++; return;
     }
   // 4. Graben — NUR direkt über einem ungefundenen Schatz
@@ -380,24 +384,24 @@ function doAction(p) {
   if (nearShop(p.x, p.y) || nearRanch(p.x, p.y)) return;   // Menüs erledigen das
   // 6. Einsteigen (zu Fuß)
   for (const b of world.boats)
-    if (!b.driver && Math.hypot(b.x-p.x, b.y-p.y) < 95) { b.driver = p; p.boat = b; p.x=b.x; p.y=b.y; return; }
+    if (!b.driver && dist(b.x-p.x, b.y-p.y) < 95) { b.driver = p; p.boat = b; p.x=b.x; p.y=b.y; return; }
   for (const cr of world.cars)
-    if (Math.hypot(cr.x-p.x, cr.y-p.y) < 92) {
+    if (dist(cr.x-p.x, cr.y-p.y) < 92) {
       if (!cr.driver)        { cr.driver = p;    p.car = cr; p.x=cr.x; p.y=cr.y; return; }
       if (!cr.passenger)     { cr.passenger = p; p.car = cr; p.x=cr.x; p.y=cr.y; return; }
     }
   for (const pl of world.planes)
-    if (!pl.driver && Math.hypot(pl.x-p.x, pl.y-p.y) < 100) { pl.driver = p; p.plane = pl; p.x=pl.x; p.y=pl.y; return; }
+    if (!pl.driver && dist(pl.x-p.x, pl.y-p.y) < 100) { pl.driver = p; p.plane = pl; p.x=pl.x; p.y=pl.y; return; }
   for (const su of world.subs)
-    if (!su.driver && Math.hypot(su.x-p.x, su.y-p.y) < 100) { su.driver = p; p.sub = su; p.x=su.x; p.y=su.y; return; }
+    if (!su.driver && dist(su.x-p.x, su.y-p.y) < 100) { su.driver = p; p.sub = su; p.x=su.x; p.y=su.y; return; }
   // 7. Eigenes Pferd besteigen
-  if (p.horse && Math.hypot(p.horse.x-p.x, p.horse.y-p.y) < 70) {
+  if (p.horse && dist(p.horse.x-p.x, p.horse.y-p.y) < 70) {
     p.mounted = true; p.x = p.horse.x; p.y = p.horse.y; return;
   }
   // 8. Schaufel werfen (Erst-Verteidigung) — sonst Monster verscheuchen
   if (throwShovel(p)) return;
   for (const a of world.monsters) {
-    const k = Math.hypot(a.x-p.x, a.y-p.y);
+    const k = dist(a.x-p.x, a.y-p.y);
     if (k < 120 && a.type !== "brocken" && a.type !== "koenig") {
       a.flee = 22; a.mad = 0; a.vx = (a.x-p.x)/(k||1)*2.4; a.vy = (a.y-p.y)/(k||1)*2.4;
     }
@@ -491,7 +495,7 @@ function winSequence() {
 function fireBolt(p, maxRange = 560) {
   let tgt = null, bd = 1e9;
   for (const a of world.monsters) {
-    const d = Math.hypot(a.x-p.x, a.y-p.y);
+    const d = dist(a.x-p.x, a.y-p.y);
     if (d < bd) { bd = d; tgt = a; }
   }
   if (!tgt || bd > maxRange) return;
@@ -504,7 +508,7 @@ function throwShovel(p) {
   if (p.shovels <= 0 || p.shootCd > 0) return false;
   let tgt = null, bd = 1e9;
   for (const a of world.monsters) {
-    const d = Math.hypot(a.x-p.x, a.y-p.y);
+    const d = dist(a.x-p.x, a.y-p.y);
     if (d < bd) { bd = d; tgt = a; }
   }
   if (!tgt || bd > 280) return false;
@@ -534,7 +538,8 @@ function resetWorld() {
 
 // ---------- Tick ----------
 function tick() {
-  for (const p of Object.values(world.players)) {
+  const PLR = Object.values(world.players);   // einmal pro Tick cachen statt pro Monster/Schuss neu allokieren
+  for (const p of PLR) {
     const edge = p.in.act && !p.lastAct;
     p.lastAct = p.in.act;
     if (p.down > 0) {                       // ohnmächtig: wartet auf Rettung (Auto-Revive erst nach 30s)
@@ -548,7 +553,7 @@ function tick() {
     if (p.inv > 0) p.inv--;
     const dx = p.in.dx, dy = p.in.dy;
     if (dx || dy) {
-      const l = Math.hypot(dx, dy) || 1;
+      const l = dist(dx, dy) || 1;
       const sp = p.plane ? 12 : p.car ? 9.2 : p.sub ? 8.2 : p.mounted ? 8.2 : p.boat ? 7.2 : 6.0;
       let nx = p.x + dx/l*sp, ny = p.y + dy/l*sp;
       if (dx) p.dir = dx > 0 ? 1 : -1;
@@ -604,14 +609,14 @@ function tick() {
     if (a.flee > 0) {
       a.flee--; a.mad = 0;
       let np = null, nd = 1e9;
-      for (const p of Object.values(world.players)) {
-        const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < nd) { nd = d; np = p; }
+      for (const p of PLR) {
+        const d = dist(p.x-a.x, p.y-a.y); if (d < nd) { nd = d; np = p; }
       }
       if (np) { const k = nd||1; a.vx = (a.x-np.x)/k*2.4; a.vy = (a.y-np.y)/k*2.4; }
       mx = 2.4;
     } else {
       let tgt = null, td = 1e9;
-      for (const p of Object.values(world.players)) {
+      for (const p of PLR) {
         if (p.inv > 0 || p.down > 0) continue;
         if (inHQ(p.x, p.y)) continue;                 // Headquarter ist sicher
         if (a.sea) {                                  // Oktopus: Spieler im/am Wasser (auch Boot/U-Boot)
@@ -619,7 +624,7 @@ function tick() {
         } else {                                      // Landmonster: auch Autos angreifbar; Flugzeug fliegt, Pferd flieht
           if (p.plane || p.mounted) continue;
         }
-        const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
+        const d = dist(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
       }
       // aggressiv: große Reichweite, halten hartnäckig drauf
       const RNG = { flatterer:360, brocken:420, oktopus:300, kannibale:340, koenig:420 };
@@ -645,7 +650,7 @@ function tick() {
           } else {                                    // Spieler zu Fuß
             tgt.hearts--; tgt.inv = 120;
             const kb = (a.type === "brocken" || a.type === "koenig") ? 40 : 22;
-            const k = Math.hypot(tgt.x-a.x, tgt.y-a.y)||1;
+            const k = dist(tgt.x-a.x, tgt.y-a.y)||1;
             tgt.x = Math.max(16, Math.min(WORLD_W-16, tgt.x+(tgt.x-a.x)/k*kb));
             tgt.y = Math.max(SEA_BOT+8, Math.min(WORLD_H-12, tgt.y+(tgt.y-a.y)/k*kb));
             if (tgt.hearts <= 0) goDown(tgt);   // aus Pferd/Fahrzeug werfen, 30s bis Auto-Revive
@@ -659,7 +664,7 @@ function tick() {
         mx = .7;
       }
     }
-    const sp = Math.hypot(a.vx, a.vy);
+    const sp = dist(a.vx, a.vy);
     if (sp > mx) { a.vx = a.vx/sp*mx; a.vy = a.vy/sp*mx; }
     let nx = a.x+a.vx, ny = a.y+a.vy;
     if (a.island) {                                   // König & Kannibalen verteidigen die Insel
@@ -687,9 +692,9 @@ function tick() {
       a.spearCd = (a.spearCd || 0) - 1;
       if (a.spearCd <= 0) {
         let st = null, sd = 1e9;
-        for (const p of Object.values(world.players)) {
+        for (const p of PLR) {
           if (p.down > 0 || inHQ(p.x, p.y)) continue;
-          const d = Math.hypot(p.x-a.x, p.y-a.y); if (d < sd) { sd = d; st = p; }
+          const d = dist(p.x-a.x, p.y-a.y); if (d < sd) { sd = d; st = p; }
         }
         if (st && sd < 640) {
           const k = sd || 1;
@@ -706,7 +711,7 @@ function tick() {
     let hit = false;
     for (const p of Object.values(world.players)) {
       if (p.down > 0 || p.inv > 0 || inHQ(p.x, p.y)) continue;
-      if (Math.hypot(p.x-s.x, p.y-s.y) < 20) {
+      if (dist(p.x-s.x, p.y-s.y) < 20) {
         const tv = p.boat ? { v:p.boat, k:"boat", arr:world.boats }
                  : p.car  ? { v:p.car,  k:"car",  arr:world.cars }
                  : p.sub  ? { v:p.sub,  k:"sub",  arr:world.subs }
@@ -730,9 +735,9 @@ function tick() {
     let hit = false;
     for (let j = world.monsters.length-1; j >= 0; j--) {
       const a = world.monsters[j];
-      if (Math.hypot(a.x-b.x, a.y-b.y) < 18*a.r) {
+      if (dist(a.x-b.x, a.y-b.y) < 18*a.r) {
         a.hp -= (b.dmg || 1); a.pop = 12; hit = true;
-        const k = Math.hypot(a.x-b.x, a.y-b.y)||1;
+        const k = dist(a.x-b.x, a.y-b.y)||1;
         // wird angeschossen, kommt aber gleich wieder (aggressiv)
         a.flee = 0;                                  // beim Beschuss NICHT fliehen, weiter jagen
         a.vx = (a.x-b.x)/k*2.0; a.vy = (a.y-b.y)/k*2.0;
@@ -746,7 +751,7 @@ function tick() {
           } else if (a.sea) {                         // Oktopus -> Münzen (im Meer)
             let np = null, nd = 1e9;
             for (const pp of Object.values(world.players)) {
-              const dd = Math.hypot(pp.x-a.x, pp.y-a.y); if (dd < nd) { nd = dd; np = pp; }
+              const dd = dist(pp.x-a.x, pp.y-a.y); if (dd < nd) { nd = dd; np = pp; }
             }
             if (np) np.coins += 4;
             world.monsters.splice(j, 1);
@@ -778,7 +783,7 @@ function tick() {
     if (--pk.life <= 0) { world.pickups.splice(i, 1); continue; }
     for (const p of Object.values(world.players)) {
       if (p.down > 0 || p.boat) continue;
-      if (Math.hypot(p.x-pk.x, p.y-pk.y) < 26) {
+      if (dist(p.x-pk.x, p.y-pk.y) < 26) {
         p.shovels += 2;
         world.pickups.splice(i, 1);
         break;
