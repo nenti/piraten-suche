@@ -32,6 +32,16 @@ Erledigtes ist abgehakt; offenes ist nach grobem Aufwand sortiert.
   - Juice: **Schatz-Fund-Animation** (Kanonen), **Eis-Animation**,
     **Auto-Baureihen** (Sportwagen/Pickup/Trabi/Van), **Minimap**,
     **Regenbogen-Fahne** beim Insel-Erobern
+- **Playtest 2026-05-20 (Janik):** kompakter ⛔-Aussteigen-Knopf
+  (vorher verdeckte er im Boot die Sicht), Beere/Eis immer auslösbar
+  (auch bei vollem Herz), sichtbarer 60-s-Respawn-Countdown, Admin-
+  Restart hinter ⚙-Menü, **Schaufel-Werfen entfernt** (verbrauchte
+  Janik ungewollt), **Shop akzeptiert Schippen** (Knarre 24🪚 /
+  Flugzeug-Upgrade 30🪚 — kein Trade-Hopping mehr nötig); −10
+  Monster gesamt, **König immer da** (Respawn 3 s + Safety-Net),
+  **Kannibalen werfen jetzt auch Speere** (kürzer/seltener),
+  **Flatterer greifen auch Flugzeuge an**. Pferd-Reiter sind wieder
+  angreifbar; Einsteigen geht jetzt vor Schießen.
 
 ## Offen — klein/mittel
 
@@ -40,10 +50,35 @@ Erledigtes ist abgehakt; offenes ist nach grobem Aufwand sortiert.
 - Sound/Musik, mehr Tipp-Variation des Geistes
 - Balancing nach echten Mehrspieler-Sessions (Monster-Dichte je Spielerzahl)
 
+## Phase 3 — Basis verteidigen + Welt öffnen (in Arbeit, nächster Brocken)
+
+Aus dem Playtest mit Janik (2026-05-20):
+- **HQ wird zur Festung**: HP-Balken, Mauern/Tor, **Auto-Türme**
+  zielen & schießen auf Monster im Radius; Monster-Münzen-Drops
+  fliegen automatisch zum HQ-Konto, damit Janik weniger Schippen↔
+  Münzen-Tradehopping braucht.
+- **Monster-Flow**: spawnen **rechts** und laufen **gemächlich
+  Richtung HQ** statt random — konstanter Angriff zum Verteidigen.
+  HQ-HP geht runter wenn sie reinkommen; Game-Over bei 0
+  (Admin-Restart aus dem ⚙-Menü).
+- **Karte deutlich weiter Richtung Meer** (Janik: „noch viel viel
+  weiter") — echte WORLD-Resize seewärts, Kamera-Bounds nachziehen.
+- **Wasserfall-Geheimnisse**:
+  - Normaler **Wasserfall**, mit dem Boot durchfahrbar → führt in
+    eine **Höhle mit Monstern** (Loot zum Risiko hin).
+  - **Regenbogen-Wasserfall** → **nette Monster** dahinter, die dem
+    Spieler **Münzen + Schippen** schenken und eine **stärkere
+    Pistole** anbieten (Belohnung für die, die's bis weit raus
+    schaffen).
+- **Schippen-Cluster**: nahe beieinander liegende Pickups visuell zu
+  einem Stack zusammenfassen („🪚 ×20") statt 20 einzelne Sprites —
+  Endgame-Map sieht sonst chaotisch aus, viele Schippen sammeln sich
+  aus zerschossenen Land-Monstern.
+
 ## Offen — groß
 
-- **Internet-Deploy auf nyxory** (echte URL, von überall spielbar) —
-  MCP-Proxy muss am dev-Kontext hängen; Code ist deploybar (Dockerfile da)
+- **Internet-Deploy auf nyxory** ✅ — live unter
+  `piraten-suche-nyx-piraten-suche.nyxory.app`; offen: Custom-Domain.
 - **Map wächst dynamisch ~2× Richtung Meer pro Level** (echte WORLD-Resize,
   Kamera-Bounds, Static-Zonen) — bewusst zurückgestellt (Risiko); aktuell
   stattdessen: Welt fix groß, HQ/Schwierigkeit wachsen pro Level, Level 4 =
