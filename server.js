@@ -175,6 +175,11 @@ const islands = [
 ];
 const BIGISLAND = islands[3];
 const FANTASYISLAND = islands[6];
+// Geheime Hoehle am Suedrand der Phantasie-Insel, genau hinter dem Regenbogen-
+// Wasserfall (Wasserfall startet bei is.y+h-6 = -246; Cave reicht bis y=-250).
+// Risk/Reward: normale Monster drin, droppen doppelt, bleiben in der Hoehle geclamped.
+const CAVE_FANTASY = { x: 2270, y: -380, w: 240, h: 130 };
+function inFantasyCave(x, y){ return x>CAVE_FANTASY.x && x<CAVE_FANTASY.x+CAVE_FANTASY.w && y>CAVE_FANTASY.y && y<CAVE_FANTASY.y+CAVE_FANTASY.h; }
 const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
 const houses = [
   { x: 1100, y: 460, w: 130, h: 100 },           // vorher x=760 — lag IM HQ-Radius, jetzt klar ausserhalb
@@ -186,7 +191,14 @@ const trees = [
   { x: 1850, y: 640 }, { x: 2050, y: 420 }, { x: 2500, y: 600 },
   { x: 470, y: 720 }, { x: 1650, y: 800 }, { x: 3050, y: 520 },
   { x: 2900, y: 760 }, { x: 3300, y: 600 },
+  // Erweitertes Land (Level 2/3) — Phase 3d Content
+  { x: 3550, y: 480 }, { x: 3700, y: 720 }, { x: 4100, y: 560 },
+  { x: 4300, y: 880 }, { x: 4600, y: 500 }, { x: 4750, y: 760 },
+  { x: 4950, y: 620 }, { x: 5150, y: 880 }, { x: 5250, y: 500 },
 ];
+// Tempel-Ruine: ein kleines geheimnisvolles Gebaeude in der rechten Wildnis,
+// nur sichtbar/erreichbar wenn das Land ab Level 2/3 aufgeht. Lockt Erkunder.
+const TEMPLE = { x: 4400, y: 660, w: 220, h: 150 };
 
 function freshTreasures() {
   // Nicht immer am gleichen Platz: zufällig verteilt, aber fair erreichbar.
@@ -268,7 +280,8 @@ for (let i = 0; i < 10; i++)
   world.bushes.push({ x: rnd(500, WORLD_W-200), y: rnd(SAND_BOT+60, WORLD_H-70), ripe: true, regrow: 0 });
 for (let i = 0; i < 6; i++) spawnMonster();
 
-function spawnMonster(type, x, y) {
+function spawnMonster(type, x, y, opts) {
+  opts = opts || {};
   if (!type) {
     const pool = world.level >= 2
       ? ["schleicher","flatterer","brocken","brocken","flatterer"]
@@ -284,7 +297,8 @@ function spawnMonster(type, x, y) {
   world.monsters.push({
     x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
     friendly: !!m.friendly,
-    island: type === "koenig" || type === "kannibale" || !!m.friendly,   // bleibt auf Königsinsel oder Phantasie-Insel
+    cave: !!opts.cave,                                   // Phantasie-Hoehle: drin bleiben, doppelter Loot
+    island: type === "koenig" || type === "kannibale" || !!m.friendly || !!opts.cave,
     fantasyIsland: !!m.friendly,
     flee: 0, mad: 0, pop: 0, wob: Math.random()*7,
     cd: 0,                                              // Nette: Geschenk-Cooldown
@@ -305,7 +319,7 @@ function onConnect(c) {
   };
   if (!world.adminId) world.adminId = id;            // erster Spieler = Admin
   send(c, { t: "init", id, W: WORLD_W, H: WORLD_H,
-            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH, harbor: HARBOR, hq: HQ } });
+            statics: { houses, trees, islands, cave: CAVE, road: { ROAD_Y, ROAD_H }, park: PARK, shop: SHOP, airport: AIRPORT, ranch: RANCH, harbor: HARBOR, hq: HQ, caveFantasy: CAVE_FANTASY, temple: TEMPLE } });
 }
 const COLORS = ["#e8413a","#3a78e8","#2fae5f","#e0a82e","#9b59b6","#e91e8c"];
 function pickColor() {
@@ -522,6 +536,11 @@ function winSequence() {
         world.planes.push({ x: px, y: py, dir: 1, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: px, y: py } });
       }
       for (let i = 0; i < 4; i++) spawnMonster();   // Level 2: ein paar mehr (–2 zur Beruhigung)
+      // 2 Monster bewachen die Tempel-Ruine in der rechten Wildnis
+      for (let i = 0; i < 2; i++) {
+        const tp = ["schleicher","brocken"][i%2];
+        spawnMonster(tp, TEMPLE.x + rnd(20, TEMPLE.w-20), TEMPLE.y + rnd(TEMPLE.h+10, TEMPLE.h+60));
+      }
     } else if (next === 3) {
       world.level = 3;
       WORLD_W = 5400;                              // Welt voll offen: Bossinsel erreichbar
@@ -535,6 +554,14 @@ function winSequence() {
         spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);  // König-Boss
       for (let i = 0; i < 3; i++) spawnMonster("nett");    // Phantasie-Insel beleben (Phase 3d)
+      // Geheime Hoehle hinter dem Regenbogen-Wasserfall — Risk/Reward
+      for (let i = 0; i < 4; i++) {
+        const tp = ["schleicher","flatterer","brocken"][Math.floor(Math.random()*3)];
+        spawnMonster(tp,
+          rnd(CAVE_FANTASY.x+20, CAVE_FANTASY.x+CAVE_FANTASY.w-20),
+          rnd(CAVE_FANTASY.y+20, CAVE_FANTASY.y+CAVE_FANTASY.h-20),
+          { cave: true });
+      }
     } else if (next === 4) {
       world.level = 4;                                               // crazier: 2. König + mehr
       for (let i = 0; i < 6; i++) spawnMonster("oktopus");          // Level 4 (–2)
@@ -765,8 +792,8 @@ function tick() {
         a.vx *= 0.6; a.vy *= 0.6;                   // sanft anstossen, kein harter Bounce
       }
     }
-    if (a.island) {                                   // König/Kannibalen auf BIGISLAND; nette auf FANTASYISLAND
-      const isl = a.fantasyIsland ? FANTASYISLAND : BIGISLAND;
+    if (a.island) {                                   // König/Kannibalen auf BIGISLAND; nette auf FANTASYISLAND; cave-Monster in CAVE_FANTASY
+      const isl = a.cave ? CAVE_FANTASY : (a.fantasyIsland ? FANTASYISLAND : BIGISLAND);
       const ix0 = isl.x+16, ix1 = isl.x+isl.w-16;
       const iy0 = isl.y+16, iy1 = isl.y+isl.h-16;
       if (nx < ix0) { nx = ix0; a.vx = Math.abs(a.vx); }
@@ -913,15 +940,25 @@ function tick() {
             if (np) np.coins += 4;
             world.monsters.splice(j, 1);
             setTimeout(() => spawnMonster("oktopus"), 5000);
-          } else {                                    // Landmonster -> Schippe + meist Muenze droppen
-            world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "s" });
-            if (Math.random() < 0.7) world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "c" });
+          } else {                                    // Landmonster -> Schippe + meist Muenze (Hoehle: doppelt)
+            const mult = a.cave ? 2 : 1;
+            for (let s = 0; s < mult; s++) world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "s" });
+            if (Math.random() < 0.7) for (let s = 0; s < mult; s++) world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "c" });
+            const wasCave = a.cave;
             world.monsters.splice(j, 1);
-            // Kannibalen kommen immer wieder (Insel bleibt umkämpft)
-            setTimeout(() => spawnMonster(
-              at === "kannibale" ? "kannibale" : undefined,
-              at === "kannibale" ? BIGISLAND.x + rnd(40, BIGISLAND.w-40) : undefined,
-              at === "kannibale" ? BIGISLAND.y + rnd(40, BIGISLAND.h-30) : undefined), 4000);
+            if (at === "kannibale") {
+              setTimeout(() => spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30)), 4000);
+            } else if (wasCave) {
+              setTimeout(() => {
+                const tp = ["schleicher","flatterer","brocken"][Math.floor(Math.random()*3)];
+                spawnMonster(tp,
+                  rnd(CAVE_FANTASY.x+20, CAVE_FANTASY.x+CAVE_FANTASY.w-20),
+                  rnd(CAVE_FANTASY.y+20, CAVE_FANTASY.y+CAVE_FANTASY.h-20),
+                  { cave: true });
+              }, 6000);
+            } else {
+              setTimeout(() => spawnMonster(), 4000);
+            }
           }
         }
         break;
