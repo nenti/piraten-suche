@@ -105,6 +105,16 @@
   <button id="sellShovel" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">5🛠️ → 3🪙</button>
 </div>
 
+<div id="hqshop" class="hidden" style="position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 56px);transform:translateX(-50%);
+  width:max-content;max-width:96vw;box-sizing:border-box;
+  background:rgba(40,60,80,.96);border:2px solid #7ad0ff;border-radius:12px;padding:10px 12px;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;z-index:5">
+  <span style="font-size:15px;white-space:nowrap">🏰 Burg-Ausbau</span>
+  <button id="hqRepair" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">🔧 +3 HP · 2🪙</button>
+  <button id="hqTower" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">🗼 Türme stärker · 10🪙</button>
+  <button id="hqHpCap" style="font-size:15px;padding:9px 14px;margin:0;white-space:nowrap">❤️ Max-HP +5 · 15🪙</button>
+</div>
+
 <script>
 "use strict";
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
@@ -304,6 +314,32 @@ function updateRanch(me){
   }
 }
 
+// ---- Burg-Ausbau (Phase 3): nur sichtbar im HQ-Radius ----
+const hqshopEl = document.getElementById("hqshop");
+function hqbuy(item){ if(ws&&ws.readyState===1) ws.send(JSON.stringify({t:"hqbuy",item})); }
+document.getElementById("hqRepair").onclick = ()=>hqbuy("repair");
+document.getElementById("hqTower").onclick  = ()=>hqbuy("tower");
+document.getElementById("hqHpCap").onclick  = ()=>hqbuy("hpcap");
+function updateHQShop(me){
+  if(!statics||!statics.hq||!me){ hqshopEl.classList.add("hidden"); return; }
+  const R = 110 + (snap.level||1)*30;
+  const inside = Math.hypot(statics.hq.x - me.x, statics.hq.y - me.y) < R;
+  hqshopEl.classList.toggle("hidden", !inside);
+  if(inside && snap.hq){
+    const hp = snap.hq.hp, mh = snap.hq.mh, tLv = snap.hq.tLv||0, hLv = snap.hq.hLv||0;
+    const tCosts = [10,20,40], hCosts = [15,30,60];
+    const rep = document.getElementById("hqRepair");
+    rep.disabled = hp >= mh || me.co < 2;
+    rep.textContent = hp >= mh ? "🔧 voll repariert" : "🔧 +3 HP · 2🪙";
+    const tw = document.getElementById("hqTower"); const tC = tCosts[tLv];
+    tw.disabled = tLv >= 3 || me.co < (tC||0);
+    tw.textContent = tLv >= 3 ? "🗼 Türme MAX" : "🗼 Türme Stufe "+(tLv+1)+" · "+tC+"🪙";
+    const hc = document.getElementById("hqHpCap"); const hC = hCosts[hLv];
+    hc.disabled = hLv >= 3 || me.co < (hC||0);
+    hc.textContent = hLv >= 3 ? "❤️ Max-HP MAX" : "❤️ Max-HP +5 · "+hC+"🪙";
+  }
+}
+
 // ---- Interpolation (weich bei 60fps trotz 20Hz Server) ----
 let IPL = [], ITK = { x:0, y:0 }, ICA = [], IBO = [], IPLN = [], ISU = [];
 const ghostPos = {};                 // id -> nachschwebende Geist-Position
@@ -489,10 +525,16 @@ function draw(){
         { x: hq.x-100, y: hq.y-70 }, { x: hq.x+100, y: hq.y-70 },
         { x: hq.x-100, y: hq.y+70 }, { x: hq.x+100, y: hq.y+70 },
       ];
+      const tLv = snap.hq ? (snap.hq.tLv||0) : 0;
       for(const tw of towers){
         ctx.fillStyle="#6b5e4a"; ctx.beginPath(); ctx.arc(tw.x,tw.y,12,0,7); ctx.fill();   // Sockel
         ctx.fillStyle="#3a3026"; ctx.fillRect(tw.x-2, tw.y-22, 4, 14);                    // Lauf
         ctx.fillStyle="#caa37a"; ctx.fillRect(tw.x-6, tw.y-26, 12, 6);                    // Aufbau
+        // Stufen-Punkte ueber dem Turm (1..3 -> goldene Sterne)
+        for(let i=0;i<tLv;i++){
+          ctx.fillStyle="#ffd34d"; ctx.beginPath();
+          ctx.arc(tw.x-6+i*6, tw.y-32, 2.5, 0, 7); ctx.fill();
+        }
       }
       // HP-Balken oben mittig ueber dem HQ
       const bw=120, bx=hq.x-bw/2, by=hq.y-R-6;
@@ -842,6 +884,19 @@ function draw(){
     ctx.fillText("Respawn am HQ — oder ein Teammate hilft.", VW/2, VH*0.56);
     ctx.textAlign = "left";
   }
+  // Game-Over-Overlay wenn die Burg down ist — Auto-Restart-Countdown (server resetWorld nach 10s)
+  if(snap.hq && snap.hq.hp <= 0){
+    const secs = Math.max(0, Math.ceil((200 - (snap.hq.dT||0)) / 20));
+    ctx.fillStyle = "rgba(80,0,0,.55)"; ctx.fillRect(0,0,VW,VH);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff"; ctx.font = "bold 46px Trebuchet MS";
+    ctx.fillText("💥 Burg zerstört — Runde verloren", VW/2, VH*0.34);
+    ctx.font = "bold 70px Trebuchet MS"; ctx.fillStyle = "#ffd34d";
+    ctx.fillText(secs + "s", VW/2, VH*0.48);
+    ctx.font = "20px Trebuchet MS"; ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillText("Neue Runde startet gleich automatisch …", VW/2, VH*0.55);
+    ctx.textAlign = "left";
+  }
   // Eis-kaufen-Animation (fettes Eis + zufrieden)
   if(me && me.fx==="ice") iceFx = t + 70;
   if(iceFx > t){
@@ -919,13 +974,13 @@ function draw(){
     }
   }
   if(me) drawMinimap();
-  updateShop(me); updateRanch(me);
+  updateShop(me); updateRanch(me); updateHQShop(me);
   exitBtn.style.display = (me && (me.bo||me.ca||me.pn||me.su||me.mo)) ? "block" : "none";
   const isAdmin = !!(me && snap.admin===myId);
   restartBtn.style.display = isAdmin ? "block" : "none";
   if (!isAdmin) restartMenu.style.display = "none";   // Menue zu, wenn man kein Admin mehr ist
   // Tipp-Leiste: feste Position am Bildschirm (überlappt nie die Spielwelt)
-  const menusOpen = !shopEl.classList.contains("hidden") || !ranchEl.classList.contains("hidden");
+  const menusOpen = !shopEl.classList.contains("hidden") || !ranchEl.classList.contains("hidden") || !hqshopEl.classList.contains("hidden");
   if(me && tipText && !menusOpen){
     const fsz = Math.max(12, Math.min(18, VW*0.022));
     ctx.font = fsz+"px Trebuchet MS";

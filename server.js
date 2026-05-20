@@ -242,7 +242,7 @@ const world = {
   truck: { x: 0, y: ROAD_Y + ROAD_H/2, dir: 1 },   // Eiswagen
   bushes: [],
   pickups: [],                                     // gedroppte Schippen + Muenzen (kind "s" / "c")
-  hq: { hp: 30, maxhp: 30, hitFx: 0, dmgCd: 0 },   // Headquarter hat jetzt Leben (Phase 3)
+  hq: { hp: 30, maxhp: 30, hitFx: 0, dmgCd: 0, deadTimer: 0, towerLvl: 0, hpLvl: 0 },   // HQ hat Leben + Ausbau + Game-Over-Timer (Phase 3)
   towers: [                                        // 4 Verteidigungs-Tuerme um HQ herum
     { x: HQ.x - 100, y: HQ.y - 70, cd: 0 },
     { x: HQ.x + 100, y: HQ.y - 70, cd: 0 },
@@ -328,6 +328,24 @@ function onMessage(c, m) {
     else if (m.item === "planeup" && p.planeLvl < 3) {
       if (ws && p.shovels >= 30)     { p.shovels -= 30; p.planeLvl++; }
       else if (!ws && p.coins >= 15) { p.coins -= 15;   p.planeLvl++; }
+    }
+  }
+  if (m.t === "hqbuy" && inHQ(p.x, p.y)) {
+    // Burg-Ausbau: Reparieren / Tuerme staerker / Max-HP erweitern. Bezahlt der Spieler aus eigener Tasche.
+    if (m.item === "repair") {
+      if (p.coins >= 2 && world.hq.hp < world.hq.maxhp) {
+        p.coins -= 2; world.hq.hp = Math.min(world.hq.maxhp, world.hq.hp + 3);
+      }
+    } else if (m.item === "tower" && world.hq.towerLvl < 3) {
+      const cost = [10, 20, 40][world.hq.towerLvl];
+      if (p.coins >= cost) { p.coins -= cost; world.hq.towerLvl++; }
+    } else if (m.item === "hpcap" && world.hq.hpLvl < 3) {
+      const cost = [15, 30, 60][world.hq.hpLvl];
+      if (p.coins >= cost) {
+        p.coins -= cost; world.hq.hpLvl++;
+        world.hq.maxhp = 30 + world.hq.hpLvl * 5;
+        world.hq.hp = world.hq.maxhp;            // Upgrade heilt direkt auf neues Max
+      }
     }
   }
   if (m.t === "ranch" && nearRanch(p.x, p.y)) {
@@ -548,7 +566,8 @@ function resetWorld() {
   world.monsters = []; world.bolts = []; world.spears = []; world.pickups = [];
   world.planes = []; world.subs = [];
   world.boats = []; world.cars = [];
-  world.hq.hp = world.hq.maxhp; world.hq.hitFx = 0; world.hq.dmgCd = 0;
+  world.hq.maxhp = 30; world.hq.hp = 30; world.hq.hitFx = 0; world.hq.dmgCd = 0;
+  world.hq.deadTimer = 0; world.hq.towerLvl = 0; world.hq.hpLvl = 0;       // Ausbau-Reset bei neuer Runde
   for (const tw of world.towers) tw.cd = 0;
   for (let i = 0; i < 4; i++) { const bx=620+i*150, by=SEA_BOT-55;
     world.boats.push({ x:bx, y:by, driver:null, hp:6, maxhp:6, ic:0, dmg:0, base:{x:bx,y:by} }); }
@@ -693,13 +712,19 @@ function tick() {
       } else {
         a.mad = Math.max(0, a.mad - .02);
         if (Math.random() < .02) { a.vx = rnd(-.6,.6); a.vy = rnd(-.6,.6); }
-        // Land-Monster ziehen langsam Richtung HQ (Defense-Flow); See & Insel bleiben in ihrem Areal
+        // Land-Monster: weit weg streifen sie nur (kaum Richtung HQ, viel y-Streuung),
+        // erst wenn die Burg in Sicht ist (~700 px) stuermen sie los — keine starre Linie mehr.
+        let charge = false;
         if (!a.sea && !a.island) {
           const hk = dist(a.x-HQ.x, a.y-HQ.y) || 1;
-          a.vx += (HQ.x-a.x)/hk * 0.06;
-          a.vy += (HQ.y-a.y)/hk * 0.06;
+          charge = hk < 700;
+          const pullX = charge ? 0.06  : 0.015;
+          const pullY = charge ? 0.05  : 0.003;   // y-Pull weit draussen fast aus -> Streuung statt Linie
+          a.vx += (HQ.x-a.x)/hk * pullX;
+          a.vy += (HQ.y-a.y)/hk * pullY;
+          if (!charge && Math.random() < .04) a.vy += rnd(-.5, .5);   // gelegentlich seitlich wandern
         }
-        mx = .9;                                  // etwas zuegiger, damit sie tatsaechlich vorruecken
+        mx = charge ? .9 : .55;                   // schleichen weit draussen, zackiger nah dran
       }
     }
     const sp = dist(a.vx, a.vy);
@@ -747,10 +772,13 @@ function tick() {
     }
   }
 
-  // HQ-Schaden: Land-Monster die ins HQ eindringen knabbern an seinem Leben.
+  // HQ-Schaden + Game-Over-Timer: bei HP=0 ist die Runde verloren — Auto-Restart nach 10s.
   world.hq.dmgCd = Math.max(0, world.hq.dmgCd - 1);
   world.hq.hitFx = Math.max(0, world.hq.hitFx - 1);
-  if (world.hq.hp > 0 && world.hq.dmgCd <= 0) {
+  if (world.hq.hp <= 0) {
+    world.hq.deadTimer++;
+    if (world.hq.deadTimer >= 200) { resetWorld(); return; }   // 10s @ 20Hz -> neue Runde
+  } else if (world.hq.dmgCd <= 0) {
     for (const a of world.monsters) {
       if (a.sea || a.island) continue;
       if (inHQ(a.x, a.y)) {
@@ -773,7 +801,7 @@ function tick() {
     }
     if (tgt && td < 300) {
       const k = td || 1;
-      world.bolts.push({ x: tw.x, y: tw.y-8, vx: (tgt.x-tw.x)/k*9, vy: (tgt.y-tw.y)/k*9, life: 60, dmg: 1, tower: true });
+      world.bolts.push({ x: tw.x, y: tw.y-8, vx: (tgt.x-tw.x)/k*9, vy: (tgt.y-tw.y)/k*9, life: 60, dmg: 1 + (world.hq.towerLvl||0), tower: true });
       tw.cd = 30;                                 // ~1.5s pro Schuss
     }
   }
@@ -915,7 +943,7 @@ function broadcast() {
     bu: world.bushes.map(b => ({ x: b.x, y: b.y, r: b.ripe })),
     pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), k: p.kind || "s" })),
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
-    hq: { hp: world.hq.hp, mh: world.hq.maxhp, fx: world.hq.hitFx },
+    hq: { hp: world.hq.hp, mh: world.hq.maxhp, fx: world.hq.hitFx, dT: world.hq.deadTimer || 0, tLv: world.hq.towerLvl || 0, hLv: world.hq.hpLvl || 0 },
     tw: world.towers.map(t => ({ x: t.x, y: t.y, cd: t.cd })),
   };
   for (const p of pls) p.fx = null;   // Effekt ist Einmal-Puls
