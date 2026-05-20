@@ -159,17 +159,22 @@ const MTYPES = {
   oktopus:    { hp: 6,  r: 1.4, sea: true },   // Level 3: lebt im Meer
   kannibale:  { hp: 6,  r: 1.0 },     // Level 3: bewacht die Königsinsel
   koenig:     { hp: 24, r: 2.6 },     // Level 3: Boss auf der Königsinsel
+  nett:       { hp: 99, r: 1.1, friendly: true },   // Phantasie-Land (L3+): schenkt Belohnungen, nicht angreifbar
 };
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 // letzte Insel = große Königsinsel (Level 3)
 const islands = [
-  { x: 1500, y: 40,  w: 240, h: 130 },
-  { x: 2700, y: 70,  w: 220, h: 150 },
-  { x: 820,  y: 30,  w: 180, h: 100 },
-  { x: 4200, y: 6,   w: 760, h: 238, king: true },   // groß & noch weiter draußen (Phase 3: Bossinsel Richtung Meer geschoben)
+  { x: 1500, y: 40,   w: 240, h: 130 },
+  { x: 2700, y: 70,   w: 220, h: 150 },
+  { x: 820,  y: 30,   w: 180, h: 100 },
+  { x: 4500, y: 6,    w: 760, h: 238, king: true },     // Königsinsel — noch weiter raus (Phase 3d)
+  { x: 3500, y: 60,   w: 180, h: 110 },                 // NEU: Mittel-Insel auf dem Weg zur Königsinsel
+  { x: 3950, y: 20,   w: 150, h: 90  },                 // NEU: weitere kleine Insel
+  { x: 2200, y: -500, w: 320, h: 200, fantasy: true },  // NEU: Phantasie-Insel im offenen Nord-Meer (nur L3+ erreichbar)
 ];
 const BIGISLAND = islands[3];
+const FANTASYISLAND = islands[6];
 const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
 const houses = [
   { x: 1100, y: 460, w: 130, h: 100 },           // vorher x=760 — lag IM HQ-Radius, jetzt klar ausserhalb
@@ -273,12 +278,16 @@ function spawnMonster(type, x, y) {
   const m = MTYPES[type];
   if (x == null) {
     if (m.sea) { x = rnd(200, WORLD_W-200); y = rnd(40, SEA_BOT-30); }
+    else if (m.friendly) { x = FANTASYISLAND.x + rnd(40, FANTASYISLAND.w-40); y = FANTASYISLAND.y + rnd(40, FANTASYISLAND.h-30); }
     else { x = rnd(WORLD_W*0.6, WORLD_W-120); y = rnd(SAND_BOT+90, WORLD_H-90); }   // Phase 3: rechts spawnen, laufen Richtung HQ
   }
   world.monsters.push({
     x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
-    island: type === "koenig" || type === "kannibale",   // bleibt auf der Königsinsel
+    friendly: !!m.friendly,
+    island: type === "koenig" || type === "kannibale" || !!m.friendly,   // bleibt auf Königsinsel oder Phantasie-Insel
+    fantasyIsland: !!m.friendly,
     flee: 0, mad: 0, pop: 0, wob: Math.random()*7,
+    cd: 0,                                              // Nette: Geschenk-Cooldown
   });
 }
 
@@ -289,7 +298,7 @@ function onConnect(c) {
   world.players[id] = {
     id, name: "Pirat " + id.slice(1),
     x: HQ.x, y: HQ.y, dir: 1, color: pickColor(),
-    hearts: 3, coins: 0, shovels: 5, shovelLvl: 1, gun: false, planeLvl: 0, shootCd: 0,
+    hearts: 3, coins: 0, shovels: 5, shovelLvl: 1, gun: false, gunPower: 0, planeLvl: 0, shootCd: 0,
     boat: null, car: null, plane: null, sub: null, horse: null, mounted: false,
     down: 0, inv: 0, fx: null, hqResp: false,
     in: { dx: 0, dy: 0, act: false }, lastAct: false, lastActive: Date.now(),
@@ -525,6 +534,7 @@ function winSequence() {
       for (let i = 0; i < 4; i++)                                   // Kannibalen auf der Königsinsel (–2)
         spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);  // König-Boss
+      for (let i = 0; i < 3; i++) spawnMonster("nett");    // Phantasie-Insel beleben (Phase 3d)
     } else if (next === 4) {
       world.level = 4;                                               // crazier: 2. König + mehr
       for (let i = 0; i < 6; i++) spawnMonster("oktopus");          // Level 4 (–2)
@@ -547,7 +557,7 @@ function fireBolt(p, maxRange = 560) {
   }
   if (!tgt || bd > maxRange) return;
   const k = bd || 1;
-  const dmg = p.plane ? 1 + (p.planeLvl||0) : 1;     // Flugzeug-Upgrade = mehr Schaden
+  const dmg = p.plane ? 1 + (p.planeLvl||0) : 1 + (p.gunPower||0);   // Flugzeug-Upgrade ODER Knarren-Upgrade (Phantasie-Land)
   world.bolts.push({ x: p.x, y: p.y-6, vx: (tgt.x-p.x)/k*9, vy: (tgt.y-p.y)/k*9, life: 80, dmg });
 }
 // Schaufel werfen — Erst-Verteidigung zu Fuß (kostet 1 Schippe)
@@ -584,7 +594,7 @@ function resetWorld() {
   for (const p of Object.values(world.players)) {
     p.boat=p.car=p.plane=p.sub=p.horse=null; p.mounted=false;
     p.hearts=3; p.down=0; p.inv=120; p.coins=0; p.shovels=5; p.shovelLvl=1;
-    p.gun=false; p.planeLvl=0; p.x=HQ.x; p.y=HQ.y; p.hqResp=false;
+    p.gun=false; p.gunPower=0; p.planeLvl=0; p.x=HQ.x; p.y=HQ.y; p.hqResp=false;
   }
 }
 
@@ -664,7 +674,13 @@ function tick() {
   for (const a of world.monsters) {
     a.wob += .15;
     let mx;
-    if (a.flee > 0) {
+    if (a.friendly) {
+      // Nette Monster (Phantasie-Land): ruhiges Wandern auf ihrer Insel, kein Targeting/Charge.
+      a.mad = 0; a.flee = 0;
+      if (Math.random() < .04) { a.vx = rnd(-.3, .3); a.vy = rnd(-.2, .2); }
+      if (a.cd > 0) a.cd--;
+      mx = .6;
+    } else if (a.flee > 0) {
       a.flee--; a.mad = 0;
       let np = null, nd = 1e9;
       for (const p of PLR) {
@@ -749,9 +765,10 @@ function tick() {
         a.vx *= 0.6; a.vy *= 0.6;                   // sanft anstossen, kein harter Bounce
       }
     }
-    if (a.island) {                                   // König & Kannibalen verteidigen die Insel
-      const ix0 = BIGISLAND.x+16, ix1 = BIGISLAND.x+BIGISLAND.w-16;
-      const iy0 = BIGISLAND.y+16, iy1 = BIGISLAND.y+BIGISLAND.h-16;
+    if (a.island) {                                   // König/Kannibalen auf BIGISLAND; nette auf FANTASYISLAND
+      const isl = a.fantasyIsland ? FANTASYISLAND : BIGISLAND;
+      const ix0 = isl.x+16, ix1 = isl.x+isl.w-16;
+      const iy0 = isl.y+16, iy1 = isl.y+isl.h-16;
       if (nx < ix0) { nx = ix0; a.vx = Math.abs(a.vx); }
       if (nx > ix1) { nx = ix1; a.vx = -Math.abs(a.vx); }
       if (ny < iy0) { ny = iy0; a.vy = Math.abs(a.vy); }
@@ -787,6 +804,25 @@ function tick() {
           world.spears.push({ x: a.x, y: a.y-20, vx: (st.x-a.x)/k*speed, vy: (st.y-a.y)/k*speed, life: 95 });
           a.spearCd = isKing ? 40 : 75;       // Kannibalen werfen seltener
         } else a.spearCd = isKing ? 18 : 35;
+      }
+    }
+  }
+
+  // Nette Phantasie-Monster: schenken Belohnungen wenn ein Spieler nahekommt (mit Cooldown).
+  for (const a of world.monsters) {
+    if (!a.friendly || a.cd > 0) continue;
+    for (const p of PLR) {
+      if (p.down > 0) continue;
+      if (dist(p.x-a.x, p.y-a.y) < 50) {
+        const r = Math.random();
+        if (r < 0.50)      { p.coins   += 5; p.fx = "nett"; a.pop = 14; }      // Muenz-Geschenk
+        else if (r < 0.85) { p.shovels += 3; p.fx = "nett"; a.pop = 14; }      // Schippen-Geschenk
+        else               {                                                  // Knarren-Upgrade (max Lvl 2)
+          if ((p.gunPower||0) < 2) { p.gunPower = (p.gunPower||0) + 1; p.gun = true; p.fx = "gun"; a.pop = 24; }
+          else                     { p.coins += 5; p.fx = "nett"; a.pop = 14; }   // schon max -> Trost-Muenzen
+        }
+        a.cd = 600;                                       // 30s bis das gleiche Pet wieder schenkt
+        break;                                            // pro Tick max 1 Geschenk pro Pet
       }
     }
   }
@@ -855,6 +891,7 @@ function tick() {
     let hit = false;
     for (let j = world.monsters.length-1; j >= 0; j--) {
       const a = world.monsters[j];
+      if (a.friendly) continue;                              // nette Phantasie-Monster sind unverwundbar
       if (dist(a.x-b.x, a.y-b.y) < 18*a.r) {
         a.hp -= (b.dmg || 1); a.pop = 12; hit = true;
         const k = dist(a.x-b.x, a.y-b.y)||1;
@@ -944,7 +981,7 @@ function broadcast() {
     players: pls.map(p => ({
       id: p.id, n: p.name, x: Math.round(p.x), y: Math.round(p.y),
       d: p.dir, c: p.color, h: p.hearts, co: p.coins, sh: p.shovels,
-      sl: p.shovelLvl, gn: p.gun, plv: p.planeLvl, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
+      sl: p.shovelLvl, gn: p.gun, gp: p.gunPower||0, plv: p.planeLvl, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
       mo: p.mounted,
       ho: p.horse ? { x: Math.round(p.horse.x), y: Math.round(p.horse.y), d: p.horse.dir } : null,
       dn: p.down, iv: p.inv > 0, fx: p.fx || null,   // dn = verbleibende Ticks (Client zeigt 60s-Countdown)
@@ -956,7 +993,7 @@ function broadcast() {
     tr: world.treasures.map(t => ({ x: t.x, y: t.y, f: t.found, cv: !!t.cave, fx: t.fx || 0 })),
     bo: world.boats.map(b => ({ x: Math.round(b.x), y: Math.round(b.y), dr: !!b.driver, di: b.driver?b.driver.id:null, dC: b.driver?b.driver.color:null, hp: b.hp, mh: b.maxhp, dm: b.dmg })),
     ca: world.cars.map(c => ({ x: Math.round(c.x), y: Math.round(c.y), d: c.dir, dr: !!c.driver, di: c.driver?c.driver.id:null, dC: c.driver?c.driver.color:null, pi: c.passenger?c.passenger.id:null, pC: c.passenger?c.passenger.color:null, hp: c.hp, mh: c.maxhp, dm: c.dmg, ml: c.mdl||0 })),
-    mo: world.monsters.map(a => ({ x: Math.round(a.x), y: Math.round(a.y), tp: a.type, hp: a.hp, mh: a.maxhp, md: a.mad, po: a.pop })),
+    mo: world.monsters.map(a => ({ x: Math.round(a.x), y: Math.round(a.y), tp: a.type, hp: a.hp, mh: a.maxhp, md: a.mad, po: a.pop, cd: a.cd||0 })),
     sr: world.spears.map(s => ({ x: Math.round(s.x), y: Math.round(s.y) })),
     bl: world.bolts.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) })),
     bu: world.bushes.map(b => ({ x: b.x, y: b.y, r: b.ripe })),
