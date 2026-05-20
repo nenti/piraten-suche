@@ -625,14 +625,52 @@ function draw(){
           ctx.beginPath();
           ctx.ellipse(wfx+27, wfy+60+i*8, 24-i*4, 3, 0, 0, 7); ctx.fill();
         }
-        // Bunte Pilze/Blumen verteilt
-        const flowers = ["#ff4d8d","#ffd34d","#7ad0ff","#b95cff","#ffaa3a"];
-        for(let i=0;i<10;i++){
-          const ang = (i/10)*Math.PI*2, fr = is.w*0.32;
-          const fxx = is.x+is.w/2 + Math.cos(ang)*fr, fyy = is.y+is.h*0.45 + Math.sin(ang)*fr*0.55;
+        // Echte Palmen verteilt auf der Insel (5 Stueck, verschiedene Positionen)
+        const palms = [
+          { x: is.x + is.w*0.18, y: is.y + is.h*0.55 },
+          { x: is.x + is.w*0.38, y: is.y + is.h*0.30 },
+          { x: is.x + is.w*0.62, y: is.y + is.h*0.36 },
+          { x: is.x + is.w*0.82, y: is.y + is.h*0.55 },
+          { x: is.x + is.w*0.50, y: is.y + is.h*0.66 },
+        ];
+        for(const pm of palms){
+          const px = pm.x, py = pm.y;
+          // Schatten unter der Palme
+          ctx.fillStyle="rgba(0,0,0,.2)";
+          ctx.beginPath();ctx.ellipse(px+2,py+4,18,5,0,0,7);ctx.fill();
+          // Stamm leicht gebogen
+          ctx.strokeStyle="#8a5a2a"; ctx.lineWidth=6;
+          ctx.beginPath(); ctx.moveTo(px, py);
+          ctx.quadraticCurveTo(px+5, py-26, px+2, py-50); ctx.stroke();
+          ctx.strokeStyle="#6b3f1d"; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.moveTo(px-1, py);
+          ctx.quadraticCurveTo(px+4, py-26, px+1, py-50); ctx.stroke();
+          // Wedel: 5 lange Ellipsen radial vom Kronen-Punkt
+          const tx = px+2, ty = py-50;
+          const fronds = [[-1.0,-26,-6,24,7],[-0.4,-22,4,24,8],[0.0,-3,-22,9,18],[0.4,22,4,24,8],[1.0,26,-6,24,7]];
+          for(const f of fronds){
+            ctx.save();
+            ctx.translate(tx + f[1]*0.55, ty + f[2]*0.55);
+            ctx.rotate(f[0]);
+            ctx.fillStyle="#2a8a3a";
+            ctx.beginPath();ctx.ellipse(0,0,f[3],f[4],0,0,7);ctx.fill();
+            ctx.fillStyle="#52c46e";
+            ctx.beginPath();ctx.ellipse(0,0,f[3]*0.85,f[4]*0.55,0,0,7);ctx.fill();
+            ctx.restore();
+          }
+          // Kokosnuesse
+          ctx.fillStyle="#5c3417";
+          ctx.beginPath();ctx.arc(tx-3,ty+3,2.6,0,7);ctx.fill();
+          ctx.beginPath();ctx.arc(tx+3,ty+2,2.6,0,7);ctx.fill();
+        }
+        // Ein paar bunte Blumen-Sprenkel zwischen den Palmen, fuer Stimmung
+        const flowers = ["#ff4d8d","#ffd34d","#b95cff","#ffaa3a"];
+        for(let i=0;i<8;i++){
+          const fxx = is.x + 30 + (i*53) % (is.w-60);
+          const fyy = is.y + is.h*0.78 + ((i*37) % 18);
           ctx.fillStyle = flowers[i%flowers.length];
-          ctx.beginPath();ctx.arc(fxx,fyy,4,0,7);ctx.fill();
-          ctx.fillStyle="#fffaa0"; ctx.beginPath();ctx.arc(fxx,fyy,1.6,0,7);ctx.fill();
+          ctx.beginPath();ctx.arc(fxx,fyy,3,0,7);ctx.fill();
+          ctx.fillStyle="#fffaa0"; ctx.beginPath();ctx.arc(fxx,fyy,1.2,0,7);ctx.fill();
         }
         // Sparkles um die Insel
         for(let i=0;i<6;i++){
@@ -834,7 +872,7 @@ function draw(){
   for(const a of snap.mo){
     if(!onScr(a.x,a.y)) continue;
     const wob=Math.sin(t*.15+a.x)*3;
-    if(a.po>0){ctx.strokeStyle=`rgba(255,220,90,${a.po/12})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(a.x,a.y,8+(12-a.po)*2.4,0,7);ctx.stroke();}
+    if(a.po>0){ctx.strokeStyle=`rgba(255,220,90,${a.po/12})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(a.x,a.y,Math.max(1, 8+(12-a.po)*2.4),0,7);ctx.stroke();}
     ctx.fillStyle="rgba(0,0,0,.22)";ctx.beginPath();ctx.ellipse(a.x,a.y+14,15,5,0,0,7);ctx.fill();
     if(a.tp==="flatterer"){
       ctx.fillStyle=a.md>.4?"#7a3550":"#7a5a8f";

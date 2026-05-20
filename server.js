@@ -171,7 +171,7 @@ const islands = [
   { x: 4500, y: 6,    w: 760, h: 238, king: true },     // Königsinsel — noch weiter raus (Phase 3d)
   { x: 3500, y: 60,   w: 180, h: 110 },                 // NEU: Mittel-Insel auf dem Weg zur Königsinsel
   { x: 3950, y: 20,   w: 150, h: 90  },                 // NEU: weitere kleine Insel
-  { x: 2200, y: -500, w: 320, h: 200, fantasy: true },  // NEU: Phantasie-Insel im offenen Nord-Meer (nur L3+ erreichbar)
+  { x: 2100, y: -560, w: 500, h: 320, fantasy: true },  // NEU: grosse Phantasie-Insel im offenen Nord-Meer (nur L3+ erreichbar)
 ];
 const BIGISLAND = islands[3];
 const FANTASYISLAND = islands[6];
@@ -815,11 +815,11 @@ function tick() {
       if (p.down > 0) continue;
       if (dist(p.x-a.x, p.y-a.y) < 50) {
         const r = Math.random();
-        if (r < 0.50)      { p.coins   += 5; p.fx = "nett"; a.pop = 14; }      // Muenz-Geschenk
-        else if (r < 0.85) { p.shovels += 3; p.fx = "nett"; a.pop = 14; }      // Schippen-Geschenk
-        else               {                                                  // Knarren-Upgrade (max Lvl 2)
-          if ((p.gunPower||0) < 2) { p.gunPower = (p.gunPower||0) + 1; p.gun = true; p.fx = "gun"; a.pop = 24; }
-          else                     { p.coins += 5; p.fx = "nett"; a.pop = 14; }   // schon max -> Trost-Muenzen
+        if (r < 0.50)      { p.coins   += 5; p.fx = "nett"; a.pop = 12; }      // Muenz-Geschenk (a.pop max 12, sonst Render-Crash)
+        else if (r < 0.85) { p.shovels += 3; p.fx = "nett"; a.pop = 12; }      // Schippen-Geschenk
+        else {                                                                // Knarren-Upgrade (max Lvl 2)
+          if ((p.gunPower||0) < 2) { p.gunPower = (p.gunPower||0) + 1; p.gun = true; p.fx = "gun"; a.pop = 12; }
+          else                     { p.coins += 5; p.fx = "nett"; a.pop = 12; }   // schon max -> Trost-Muenzen
         }
         a.cd = 600;                                       // 30s bis das gleiche Pet wieder schenkt
         break;                                            // pro Tick max 1 Geschenk pro Pet
