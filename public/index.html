@@ -472,13 +472,39 @@ function draw(){
       ctx.fillStyle="#6b5638";rr(hb.x,hb.y,hb.w,hb.h,6);
       ctx.fillStyle="#fff";ctx.font="14px Trebuchet MS";ctx.fillText("⚓ U-Boot-Hafen",hb.x-2,hb.y-8);
     }
-    if(statics.hq){                                 // Headquarter / sichere Zone
+    if(statics.hq){                                 // Headquarter / Festung mit HP + Tuermen (Phase 3)
       const hq=statics.hq, R=110+(snap.level||1)*30;
-      ctx.fillStyle="rgba(80,200,255,.12)";ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.fill();
-      ctx.strokeStyle="rgba(120,220,255,.55)";ctx.lineWidth=3;ctx.setLineDash([14,10]);
+      const hp = snap.hq ? snap.hq.hp : 30, mh = snap.hq ? snap.hq.mh : 30, hfx = snap.hq ? snap.hq.fx : 0;
+      // Safe-Zone-Kreis
+      ctx.fillStyle = hfx>0 ? "rgba(255,80,80,.18)" : "rgba(80,200,255,.12)";
+      ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.fill();
+      ctx.strokeStyle = hfx>0 ? "rgba(255,120,120,.7)" : "rgba(120,220,255,.55)";
+      ctx.lineWidth=3;ctx.setLineDash([14,10]);
       ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.stroke();ctx.setLineDash([]);
-      ctx.fillStyle="rgba(120,220,255,.85)";ctx.font="bold 18px Trebuchet MS";ctx.textAlign="center";
-      ctx.fillText("🏰 Basis (sicher)",hq.x,hq.y-R+22);ctx.textAlign="left";
+      // Festungs-Mauer (innerer Steinring)
+      ctx.strokeStyle="#a89274";ctx.lineWidth=6;
+      ctx.beginPath();ctx.arc(hq.x,hq.y,R-26,0,7);ctx.stroke();
+      // 4 Verteidigungs-Tuerme (Positionen von snap.tw oder Fallback)
+      const towers = (snap.tw && snap.tw.length) ? snap.tw : [
+        { x: hq.x-100, y: hq.y-70 }, { x: hq.x+100, y: hq.y-70 },
+        { x: hq.x-100, y: hq.y+70 }, { x: hq.x+100, y: hq.y+70 },
+      ];
+      for(const tw of towers){
+        ctx.fillStyle="#6b5e4a"; ctx.beginPath(); ctx.arc(tw.x,tw.y,12,0,7); ctx.fill();   // Sockel
+        ctx.fillStyle="#3a3026"; ctx.fillRect(tw.x-2, tw.y-22, 4, 14);                    // Lauf
+        ctx.fillStyle="#caa37a"; ctx.fillRect(tw.x-6, tw.y-26, 12, 6);                    // Aufbau
+      }
+      // HP-Balken oben mittig ueber dem HQ
+      const bw=120, bx=hq.x-bw/2, by=hq.y-R-6;
+      ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillRect(bx-2,by-2,bw+4,12);
+      ctx.fillStyle = hp/mh > 0.4 ? "#5fc46b" : hp/mh > 0.2 ? "#e8a93a" : "#e74c3c";
+      ctx.fillRect(bx,by,bw*(hp/mh),8);
+      ctx.fillStyle="#fff"; ctx.font="bold 12px Trebuchet MS"; ctx.textAlign="center";
+      ctx.fillText("🏰 Basis  "+hp+"/"+mh+" ❤", hq.x, by-4);
+      ctx.font="bold 16px Trebuchet MS";
+      ctx.fillStyle = hp <= 0 ? "rgba(255,120,120,.95)" : "rgba(120,220,255,.85)";
+      ctx.fillText(hp <= 0 ? "💥 HQ zerstoert — Admin: Neu starten" : "🏰 Basis (sicher)", hq.x, hq.y-R+22);
+      ctx.textAlign="left";
     }
     for(const is of statics.islands){
       if(is.x+is.w<camX-40||is.x>camX+VW+40||is.y+is.h<camY-60||is.y>camY+VH+40) continue;
@@ -557,21 +583,32 @@ function draw(){
     if(bu.r){ctx.fillStyle="#6f4bd6";for(const o of[[-5,-2],[5,0],[0,5],[-8,5],[8,6]]){ctx.beginPath();ctx.arc(bu.x+o[0],bu.y+o[1],3,0,7);ctx.fill();}}
   }
   // gedroppte Schippen (von abgeschossenen Monstern)
-  // Schippen-Cluster: nahe beieinander liegende Pickups in ein Sprite zusammenfassen
-  // ("×N"-Badge), sonst sieht's chaotisch aus wenn viele Land-Monster zerschossen sind.
+  // Pickup-Cluster (getrennt nach Schippe "s" / Muenze "c"): nahe beieinander
+  // liegende Sprites werden zu einem Stack mit "×N"-Badge zusammengefasst.
   const _pkCell = 36, _pks = {};
   for(const pk of snap.pk){
     if(!onScr(pk.x,pk.y,30)) continue;
-    const key = Math.round(pk.x/_pkCell)+":"+Math.round(pk.y/_pkCell);
-    let c = _pks[key]; if(!c) c = _pks[key] = { sx:0, sy:0, n:0 };
+    const kind = pk.k || "s";
+    const key = kind+":"+Math.round(pk.x/_pkCell)+":"+Math.round(pk.y/_pkCell);
+    let c = _pks[key]; if(!c) c = _pks[key] = { sx:0, sy:0, n:0, kind };
     c.sx += pk.x; c.sy += pk.y; c.n++;
   }
-  for(const k in _pks){
-    const c = _pks[k], cx = c.sx/c.n, cy = c.sy/c.n;
-    ctx.fillStyle="rgba(255,235,140,"+(0.18+0.14*Math.sin(t*0.2))+")";
-    ctx.beginPath();ctx.arc(cx,cy,16,0,7);ctx.fill();
-    ctx.fillStyle="#6b3f1d";ctx.fillRect(cx-1,cy-2,3,12);
-    ctx.fillStyle="#cfd6dd";rr(cx-6,cy-10,12,9,2);
+  for(const key in _pks){
+    const c = _pks[key], cx = c.sx/c.n, cy = c.sy/c.n;
+    if(c.kind === "c"){
+      // Muenze: goldener Kreis mit "$"
+      ctx.fillStyle="rgba(255,220,80,"+(0.22+0.16*Math.sin(t*0.2))+")";
+      ctx.beginPath();ctx.arc(cx,cy,16,0,7);ctx.fill();
+      ctx.fillStyle="#ffd54f"; ctx.beginPath();ctx.arc(cx,cy,9,0,7);ctx.fill();
+      ctx.fillStyle="#b8860b"; ctx.font="bold 11px Trebuchet MS"; ctx.textAlign="center";
+      ctx.fillText("$", cx, cy+4); ctx.textAlign="left";
+    } else {
+      // Schippe: bisheriges Sprite
+      ctx.fillStyle="rgba(255,235,140,"+(0.18+0.14*Math.sin(t*0.2))+")";
+      ctx.beginPath();ctx.arc(cx,cy,16,0,7);ctx.fill();
+      ctx.fillStyle="#6b3f1d";ctx.fillRect(cx-1,cy-2,3,12);
+      ctx.fillStyle="#cfd6dd";rr(cx-6,cy-10,12,9,2);
+    }
     if(c.n > 1){
       ctx.fillStyle="rgba(0,0,0,.75)"; ctx.beginPath(); ctx.arc(cx+12,cy-12,9,0,7); ctx.fill();
       ctx.fillStyle="#ffe24d"; ctx.font="bold 12px Trebuchet MS"; ctx.textAlign="center";

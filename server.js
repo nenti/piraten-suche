@@ -241,7 +241,14 @@ const world = {
   monsters: [],
   truck: { x: 0, y: ROAD_Y + ROAD_H/2, dir: 1 },   // Eiswagen
   bushes: [],
-  pickups: [],                                     // gedroppte Schippen
+  pickups: [],                                     // gedroppte Schippen + Muenzen (kind "s" / "c")
+  hq: { hp: 30, maxhp: 30, hitFx: 0, dmgCd: 0 },   // Headquarter hat jetzt Leben (Phase 3)
+  towers: [                                        // 4 Verteidigungs-Tuerme um HQ herum
+    { x: HQ.x - 100, y: HQ.y - 70, cd: 0 },
+    { x: HQ.x + 100, y: HQ.y - 70, cd: 0 },
+    { x: HQ.x - 100, y: HQ.y + 70, cd: 0 },
+    { x: HQ.x + 100, y: HQ.y + 70, cd: 0 },
+  ],
   planes: [],                                      // Flugzeuge (ab Level 2)
   subs: [],                                        // U-Boote (ab Level 3)
   won: false,
@@ -265,7 +272,7 @@ function spawnMonster(type, x, y) {
   const m = MTYPES[type];
   if (x == null) {
     if (m.sea) { x = rnd(200, WORLD_W-200); y = rnd(40, SEA_BOT-30); }
-    else { x = rnd(1400, WORLD_W-200); y = rnd(SAND_BOT+90, WORLD_H-90); }
+    else { x = rnd(WORLD_W*0.6, WORLD_W-120); y = rnd(SAND_BOT+90, WORLD_H-90); }   // Phase 3: rechts spawnen, laufen Richtung HQ
   }
   world.monsters.push({
     x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
@@ -541,6 +548,8 @@ function resetWorld() {
   world.monsters = []; world.bolts = []; world.spears = []; world.pickups = [];
   world.planes = []; world.subs = [];
   world.boats = []; world.cars = [];
+  world.hq.hp = world.hq.maxhp; world.hq.hitFx = 0; world.hq.dmgCd = 0;
+  for (const tw of world.towers) tw.cd = 0;
   for (let i = 0; i < 4; i++) { const bx=620+i*150, by=SEA_BOT-55;
     world.boats.push({ x:bx, y:by, driver:null, hp:6, maxhp:6, ic:0, dmg:0, base:{x:bx,y:by} }); }
   for (let i = 0; i < 4; i++) { const cx=PARK.x+24+i*34, cy=PARK.y+40;
@@ -684,7 +693,13 @@ function tick() {
       } else {
         a.mad = Math.max(0, a.mad - .02);
         if (Math.random() < .02) { a.vx = rnd(-.6,.6); a.vy = rnd(-.6,.6); }
-        mx = .7;
+        // Land-Monster ziehen langsam Richtung HQ (Defense-Flow); See & Insel bleiben in ihrem Areal
+        if (!a.sea && !a.island) {
+          const hk = dist(a.x-HQ.x, a.y-HQ.y) || 1;
+          a.vx += (HQ.x-a.x)/hk * 0.06;
+          a.vy += (HQ.y-a.y)/hk * 0.06;
+        }
+        mx = .9;                                  // etwas zuegiger, damit sie tatsaechlich vorruecken
       }
     }
     const sp = dist(a.vx, a.vy);
@@ -729,6 +744,37 @@ function tick() {
           a.spearCd = isKing ? 40 : 75;       // Kannibalen werfen seltener
         } else a.spearCd = isKing ? 18 : 35;
       }
+    }
+  }
+
+  // HQ-Schaden: Land-Monster die ins HQ eindringen knabbern an seinem Leben.
+  world.hq.dmgCd = Math.max(0, world.hq.dmgCd - 1);
+  world.hq.hitFx = Math.max(0, world.hq.hitFx - 1);
+  if (world.hq.hp > 0 && world.hq.dmgCd <= 0) {
+    for (const a of world.monsters) {
+      if (a.sea || a.island) continue;
+      if (inHQ(a.x, a.y)) {
+        world.hq.hp = Math.max(0, world.hq.hp - 1);
+        world.hq.hitFx = 8;
+        world.hq.dmgCd = 16;                       // max 1 HP / ~0.8s, auch bei mehreren drinnen
+        break;
+      }
+    }
+  }
+  // Verteidigungs-Tuerme: zielen auf naechstes Land-Monster in Reichweite und feuern Bolts.
+  for (const tw of world.towers) {
+    tw.cd = Math.max(0, tw.cd - 1);
+    if (tw.cd > 0) continue;
+    let tgt = null, td = 1e9;
+    for (const a of world.monsters) {
+      if (a.sea || a.island) continue;            // Tuerme nur gegen Land-Monster
+      const d = dist(a.x-tw.x, a.y-tw.y);
+      if (d < td) { td = d; tgt = a; }
+    }
+    if (tgt && td < 300) {
+      const k = td || 1;
+      world.bolts.push({ x: tw.x, y: tw.y-8, vx: (tgt.x-tw.x)/k*9, vy: (tgt.y-tw.y)/k*9, life: 60, dmg: 1, tower: true });
+      tw.cd = 30;                                 // ~1.5s pro Schuss
     }
   }
 
@@ -783,10 +829,9 @@ function tick() {
             if (np) np.coins += 4;
             world.monsters.splice(j, 1);
             setTimeout(() => spawnMonster("oktopus"), 5000);
-          } else {                                    // Landmonster -> Schippen droppen
-            const n = 1 + (Math.random() < 0.5 ? 1 : 0);
-            for (let s = 0; s < n; s++)
-              world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800 });
+          } else {                                    // Landmonster -> Schippe + meist Muenze droppen
+            world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "s" });
+            if (Math.random() < 0.7) world.pickups.push({ x: a.x + rnd(-14, 14), y: a.y + rnd(-14, 14), life: 1800, kind: "c" });
             world.monsters.splice(j, 1);
             // Kannibalen kommen immer wieder (Insel bleibt umkämpft)
             setTimeout(() => spawnMonster(
@@ -804,14 +849,15 @@ function tick() {
 
   for (const bu of world.bushes) if (!bu.ripe && --bu.regrow <= 0) bu.ripe = true;
 
-  // Schippen-Drops aufsammeln (Team kann sich so versorgen)
+  // Pickup-Aufsammeln (Schippen + Muenzen je nach Sorte)
   for (let i = world.pickups.length-1; i >= 0; i--) {
     const pk = world.pickups[i];
     if (--pk.life <= 0) { world.pickups.splice(i, 1); continue; }
     for (const p of Object.values(world.players)) {
       if (p.down > 0 || p.boat) continue;
       if (dist(p.x-pk.x, p.y-pk.y) < 26) {
-        p.shovels += 2;
+        if (pk.kind === "c") p.coins += 2;
+        else                 p.shovels += 2;
         world.pickups.splice(i, 1);
         break;
       }
@@ -867,8 +913,10 @@ function broadcast() {
     sr: world.spears.map(s => ({ x: Math.round(s.x), y: Math.round(s.y) })),
     bl: world.bolts.map(b => ({ x: Math.round(b.x), y: Math.round(b.y) })),
     bu: world.bushes.map(b => ({ x: b.x, y: b.y, r: b.ripe })),
-    pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })),
+    pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), k: p.kind || "s" })),
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
+    hq: { hp: world.hq.hp, mh: world.hq.maxhp, fx: world.hq.hitFx },
+    tw: world.towers.map(t => ({ x: t.x, y: t.y, cd: t.cd })),
   };
   for (const p of pls) p.fx = null;   // Effekt ist Einmal-Puls
   const msg = encodeFrame(JSON.stringify(snap));
