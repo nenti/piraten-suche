@@ -243,6 +243,7 @@ const world = {
   bushes: [],
   pickups: [],                                     // gedroppte Schippen + Muenzen (kind "s" / "c")
   hq: { hp: 30, maxhp: 30, hitFx: 0, dmgCd: 0, deadTimer: 0, towerLvl: 0, hpLvl: 0 },   // HQ hat Leben + Ausbau + Game-Over-Timer (Phase 3)
+  yMin: 0,                                          // Welt-Top: pro Level negativ -> Meer oeffnet sich nach Norden
   towers: [                                        // 4 Verteidigungs-Tuerme um HQ herum
     { x: HQ.x - 100, y: HQ.y - 70, cd: 0 },
     { x: HQ.x + 100, y: HQ.y - 70, cd: 0 },
@@ -506,6 +507,7 @@ function winSequence() {
     if (next === 2) {
       world.level = 2;
       WORLD_W = 4500;                              // Welt wird breiter: Flugplatz-Bereich kommt rein
+      world.yMin = -300;                           // und Meer oeffnet sich nach oben (Janik-Wunsch)
       for (let i = 0; i < 3; i++) {                // Flugzeuge am Flugplatz
         const px = AIRPORT.x + 70 + i*150, py = AIRPORT.y + AIRPORT.h/2;
         world.planes.push({ x: px, y: py, dir: 1, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: px, y: py } });
@@ -514,6 +516,7 @@ function winSequence() {
     } else if (next === 3) {
       world.level = 3;
       WORLD_W = 5400;                              // Welt voll offen: Bossinsel erreichbar
+      world.yMin = -700;                           // Meer reicht jetzt weit nach oben — echtes offenes Meer
       for (let i = 0; i < 3; i++) {                // U-Boote im Hafen
         const sx = HARBOR.x + 50 + i*70, sy = HARBOR.y + HARBOR.h/2;
         world.subs.push({ x: sx, y: sy, dir: 1, driver: null, hp: 7, maxhp: 7, ic: 0, dmg: 0, base: { x: sx, y: sy } });
@@ -565,6 +568,7 @@ function throwShovel(p) {
 function resetWorld() {
   world.level = 1; world.won = false; world.kingDown = 0; world.wave = 0; world.waveCd = 700;
   WORLD_W = 3300;                              // neue Runde -> Karte zurueck auf Level-1-Groesse
+  world.yMin = 0;                              // und Meer wieder geschlossen
   world.treasures = freshTreasures();
   world.monsters = []; world.bolts = []; world.spears = []; world.pickups = [];
   world.planes = []; world.subs = [];
@@ -613,7 +617,7 @@ function tick() {
       if (dx) p.dir = dx > 0 ? 1 : -1;
       if (p.plane) {                               // fliegt frei über alles
         p.x = Math.max(20, Math.min(WORLD_W-20, nx));
-        p.y = Math.max(20, Math.min(WORLD_H-20, ny));
+        p.y = Math.max(world.yMin+20, Math.min(WORLD_H-20, ny));      // Flugzeug darf auch ins offene Meer
         p.plane.x = p.x; p.plane.y = p.y; if (dx) p.plane.dir = p.dir;
       } else if (p.mounted) {                      // Pferd: schnell, nur an Land
         if (!blockedFoot(nx, p.y)) p.x = nx;
@@ -621,11 +625,11 @@ function tick() {
         p.horse.x = p.x; p.horse.y = p.y; if (dx) p.horse.dir = p.dir;
       } else if (p.boat) {
         nx = Math.max(20, Math.min(WORLD_W-20, nx));
-        ny = Math.max(16, Math.min(SEA_BOT-6, ny));
+        ny = Math.max(world.yMin+16, Math.min(SEA_BOT-6, ny));   // weit raus aufs Meer ab Level 2/3
         p.x = nx; p.y = ny; p.boat.x = nx; p.boat.y = ny;
       } else if (p.sub) {                            // U-Boot: nur im Meer, schnell
         nx = Math.max(20, Math.min(WORLD_W-20, nx));
-        ny = Math.max(16, Math.min(SEA_BOT-6, ny));
+        ny = Math.max(world.yMin+16, Math.min(SEA_BOT-6, ny));
         p.x = nx; p.y = ny; p.sub.x = nx; p.sub.y = ny; if (dx) p.sub.dir = p.dir;
       } else if (p.car) {
         if (p.car.driver === p) {                    // nur der Fahrer lenkt
@@ -728,12 +732,23 @@ function tick() {
           a.vy += (HQ.y-a.y)/hk * pullY;
           if (!charge && Math.random() < .04) a.vy += rnd(-.5, .5);   // gelegentlich seitlich wandern
         }
-        mx = charge ? 2.0 : 1.0;                  // rennen wenn Burg sichtbar, schlendern weit draussen
+        mx = charge ? 2.4 : 1.4;                  // STURM wenn Burg sichtbar, draussen zackiger als vorher
       }
     }
     const sp = dist(a.vx, a.vy);
     if (sp > mx) { a.vx = a.vx/sp*mx; a.vy = a.vy/sp*mx; }
     let nx = a.x+a.vx, ny = a.y+a.vy;
+    // Land-Monster bleiben AUSSEN vor der Burgmauer (greifen sie von dort an,
+    // statt einfach durch die Wand in die sichere Zone zu spazieren).
+    if (!a.sea && !a.island) {
+      const wallOut = hqR() - 10;
+      const dhq = dist(nx-HQ.x, ny-HQ.y);
+      if (dhq < wallOut && dhq > 0) {
+        nx = HQ.x + (nx-HQ.x)/dhq * wallOut;
+        ny = HQ.y + (ny-HQ.y)/dhq * wallOut;
+        a.vx *= 0.6; a.vy *= 0.6;                   // sanft anstossen, kein harter Bounce
+      }
+    }
     if (a.island) {                                   // König & Kannibalen verteidigen die Insel
       const ix0 = BIGISLAND.x+16, ix1 = BIGISLAND.x+BIGISLAND.w-16;
       const iy0 = BIGISLAND.y+16, iy1 = BIGISLAND.y+BIGISLAND.h-16;
@@ -948,6 +963,7 @@ function broadcast() {
     pk: world.pickups.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), k: p.kind || "s" })),
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
     hq: { hp: world.hq.hp, mh: world.hq.maxhp, fx: world.hq.hitFx, dT: world.hq.deadTimer || 0, tLv: world.hq.towerLvl || 0, hLv: world.hq.hpLvl || 0 },
+    wW: WORLD_W, yMin: world.yMin,             // Welt-Groesse mitsenden, damit Client Kamera + Sea-Gradient anpassen kann
     tw: world.towers.map(t => ({ x: t.x, y: t.y, cd: t.cd })),
   };
   for (const p of pls) p.fx = null;   // Effekt ist Einmal-Puls

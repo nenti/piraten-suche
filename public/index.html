@@ -154,7 +154,8 @@ function showControls(on){
   document.querySelectorAll(".touch-only").forEach(e=>e.style.display=on?"block":"none");
 }
 
-let ws, myId = null, W = 3600, H = 1100, statics = null;
+let ws, myId = null, W = 3300, H = 1100, statics = null;
+let yMin = 0;                              // Welt-Top (Norden ins Meer) — wird vom Server pro Level gesetzt
 const EMPTY = { players:[], tr:[], bo:[], ca:[], mo:[], bl:[], sr:[], bu:[], pk:[], pl:[], su:[], tk:{x:0,y:0}, won:false, goal:6, level:1, kingDown:false };
 let snap = EMPTY, prevSnap = EMPTY, snapAt = 0;
 const SNAP_MS = 50;                       // Startwert; snapDt misst das echte Intervall
@@ -179,6 +180,8 @@ function connect(name){
     else if (m.t === "s"){
       const now = performance.now();
       if (snap !== EMPTY){ const d = now - snapAt; if (d > 16 && d < 500) snapDt = snapDt*0.8 + d*0.2; }
+      if (m.wW) W = m.wW;                                       // Welt waechst pro Level — Kamera muss mitziehen
+      if (typeof m.yMin === "number") yMin = m.yMin;            // Meer oeffnet sich nach Norden
       prevSnap = snap===EMPTY ? m : snap; snap = m; snapAt = now;
     }
   };
@@ -401,8 +404,8 @@ let _bg=null;   // Hintergrund-Gradienten einmal cachen statt pro Frame neu baue
 function camera(){
   const me = IPL.find(p=>p.id===myId);
   const tx = me ? me.x : W/2, ty = me ? me.y : H/2;
-  camX += ((Math.max(0,Math.min(W-VW, tx-VW/2))) - camX)*0.2;
-  camY += ((Math.max(0,Math.min(H-VH, ty-VH/2))) - camY)*0.2;
+  camX += ((Math.max(0,    Math.min(W-VW,    tx-VW/2))) - camX)*0.2;
+  camY += ((Math.max(yMin, Math.min(H-VH,    ty-VH/2))) - camY)*0.2;
 }
 
 // ---- Zeichnen ----
@@ -463,17 +466,26 @@ function draw(){
   ctx.save(); ctx.translate(-camX,-camY);
   // Hintergrund
   const SEA=260,SAND=380;
-  if(!_bg || _bg.h!==H){
-    _bg={ h:H };
-    _bg.sea=ctx.createLinearGradient(0,0,0,SEA);   _bg.sea.addColorStop(0,"#1f7fa8");_bg.sea.addColorStop(1,"#54bcdb");
+  // Cache invalidieren wenn sich World-Top oder Hoehe aendert (Level-Up oeffnet Meer)
+  if(!_bg || _bg.h!==H || _bg.t!==yMin){
+    _bg={ h:H, t:yMin };
+    _bg.sea=ctx.createLinearGradient(0,yMin,0,SEA); _bg.sea.addColorStop(0,"#0d5a7c");_bg.sea.addColorStop(1,"#54bcdb");
     _bg.sand=ctx.createLinearGradient(0,SEA,0,SAND);_bg.sand.addColorStop(0,"#efdcab");_bg.sand.addColorStop(1,"#dcc173");
     _bg.grass=ctx.createLinearGradient(0,SAND,0,H); _bg.grass.addColorStop(0,"#46a05f");_bg.grass.addColorStop(1,"#327a48");
   }
-  ctx.fillStyle=_bg.sea;ctx.fillRect(0,0,W,SEA);
+  ctx.fillStyle=_bg.sea;ctx.fillRect(0,yMin,W,SEA-yMin);
   ctx.strokeStyle="rgba(255,255,255,.4)";ctx.lineWidth=2;
-  for(let i=0;i<6;i++){ctx.beginPath();
+  // Wellen-Streifen ueber den ganzen Meer-Bereich (auch im offenen Meer-Nord ab Level 2/3)
+  const nWaves = Math.min(40, Math.ceil((SEA-yMin)/26));
+  const visTopY = Math.max(yMin, camY-30), visBotY = Math.min(SEA-4, camY+VH+30);
+  for(let i=0;i<nWaves;i++){
+    const waveY = yMin + 22 + i*26;
+    if(waveY < visTopY || waveY > visBotY) continue;
+    ctx.beginPath();
     for(let x=Math.max(0,camX-20);x<camX+VW+20;x+=26)
-      ctx.lineTo(x,22+i*26+Math.sin((x+t*1.6+i*40)/40)*5);ctx.stroke();}
+      ctx.lineTo(x,waveY+Math.sin((x+t*1.6+i*40)/40)*5);
+    ctx.stroke();
+  }
   ctx.fillStyle=_bg.sand;ctx.fillRect(0,SEA,W,SAND-SEA);
   ctx.fillStyle=_bg.grass;ctx.fillRect(0,SAND,W,H-SAND);
   if(statics){
