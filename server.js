@@ -136,7 +136,7 @@ function closeClient(c) {
 }
 
 // ================= SPIELWELT (autoritativ) =================
-const WORLD_W = 5400, WORLD_H = 1100;             // Phase 3: viel weiter Richtung Meer (3600 -> 5400, Janik-Wunsch)
+let WORLD_W = 3300, WORLD_H = 1100;               // WELT WAECHST PRO LEVEL: 1=3300, 2=4500, 3+=5400 (Phase 3c)
 const SEA_BOT = 260, SAND_BOT = 380;
 const HQ = { x: 700, y: 430 };                    // Headquarter / Spawn-Basis (sicher)
 function hqR() { return 110 + world.level * 30; }  // wächst pro Level
@@ -172,7 +172,7 @@ const islands = [
 const BIGISLAND = islands[3];
 const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
 const houses = [
-  { x: 760, y: 460, w: 130, h: 100 },
+  { x: 1100, y: 460, w: 130, h: 100 },           // vorher x=760 — lag IM HQ-Radius, jetzt klar ausserhalb
   { x: 1250, y: 600, w: 130, h: 100 },
   { x: 2150, y: 500, w: 140, h: 105 },
 ];
@@ -505,6 +505,7 @@ function winSequence() {
   setTimeout(() => {
     if (next === 2) {
       world.level = 2;
+      WORLD_W = 4500;                              // Welt wird breiter: Flugplatz-Bereich kommt rein
       for (let i = 0; i < 3; i++) {                // Flugzeuge am Flugplatz
         const px = AIRPORT.x + 70 + i*150, py = AIRPORT.y + AIRPORT.h/2;
         world.planes.push({ x: px, y: py, dir: 1, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: px, y: py } });
@@ -512,6 +513,7 @@ function winSequence() {
       for (let i = 0; i < 4; i++) spawnMonster();   // Level 2: ein paar mehr (–2 zur Beruhigung)
     } else if (next === 3) {
       world.level = 3;
+      WORLD_W = 5400;                              // Welt voll offen: Bossinsel erreichbar
       for (let i = 0; i < 3; i++) {                // U-Boote im Hafen
         const sx = HARBOR.x + 50 + i*70, sy = HARBOR.y + HARBOR.h/2;
         world.subs.push({ x: sx, y: sy, dir: 1, driver: null, hp: 7, maxhp: 7, ic: 0, dmg: 0, base: { x: sx, y: sy } });
@@ -562,6 +564,7 @@ function throwShovel(p) {
 // kompletter Neustart (nur Admin / leeres Spiel)
 function resetWorld() {
   world.level = 1; world.won = false; world.kingDown = 0; world.wave = 0; world.waveCd = 700;
+  WORLD_W = 3300;                              // neue Runde -> Karte zurueck auf Level-1-Groesse
   world.treasures = freshTreasures();
   world.monsters = []; world.bolts = []; world.spears = []; world.pickups = [];
   world.planes = []; world.subs = [];
@@ -712,19 +715,20 @@ function tick() {
       } else {
         a.mad = Math.max(0, a.mad - .02);
         if (Math.random() < .02) { a.vx = rnd(-.6,.6); a.vy = rnd(-.6,.6); }
-        // Land-Monster: weit weg streifen sie nur (kaum Richtung HQ, viel y-Streuung),
-        // erst wenn die Burg in Sicht ist (~700 px) stuermen sie los — keine starre Linie mehr.
+        // Land-Monster: weit weg ziehen sie spuerbar Richtung HQ (mit y-Streuung
+        // damit nicht alle in einer Linie laufen). Sobald die Burg in Sicht ist
+        // (~700 px), schalten sie auf STURM: deutlich schneller, harter Pull.
         let charge = false;
         if (!a.sea && !a.island) {
           const hk = dist(a.x-HQ.x, a.y-HQ.y) || 1;
           charge = hk < 700;
-          const pullX = charge ? 0.06  : 0.015;
-          const pullY = charge ? 0.05  : 0.003;   // y-Pull weit draussen fast aus -> Streuung statt Linie
+          const pullX = charge ? 0.14 : 0.05;
+          const pullY = charge ? 0.10 : 0.01;     // y-Pull weit draussen schwach (Streuung)
           a.vx += (HQ.x-a.x)/hk * pullX;
           a.vy += (HQ.y-a.y)/hk * pullY;
           if (!charge && Math.random() < .04) a.vy += rnd(-.5, .5);   // gelegentlich seitlich wandern
         }
-        mx = charge ? .9 : .55;                   // schleichen weit draussen, zackiger nah dran
+        mx = charge ? 2.0 : 1.0;                  // rennen wenn Burg sichtbar, schlendern weit draussen
       }
     }
     const sp = dist(a.vx, a.vy);

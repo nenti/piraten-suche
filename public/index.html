@@ -508,44 +508,89 @@ function draw(){
       ctx.fillStyle="#6b5638";rr(hb.x,hb.y,hb.w,hb.h,6);
       ctx.fillStyle="#fff";ctx.font="14px Trebuchet MS";ctx.fillText("⚓ U-Boot-Hafen",hb.x-2,hb.y-8);
     }
-    if(statics.hq){                                 // Headquarter / Festung mit HP + Tuermen (Phase 3)
+    if(statics.hq){                                 // Burg mit echtem Skin: Mauer+Zinnen+Tor+Turm-Upgrades + HP-Balken
       const hq=statics.hq, R=110+(snap.level||1)*30;
-      const hp = snap.hq ? snap.hq.hp : 30, mh = snap.hq ? snap.hq.mh : 30, hfx = snap.hq ? snap.hq.fx : 0;
-      // Safe-Zone-Kreis
+      const sn=snap.hq||{};
+      const hp = sn.hp != null ? sn.hp : 30, mh = sn.mh || 30, hfx = sn.fx || 0;
+      const tLv = sn.tLv||0, hLv = sn.hLv||0;
+      const wallThick = 22 + hLv*4;               // dickere Mauer bei Max-HP-Upgrade
+      const wallOut = R - 10, wallIn = wallOut - wallThick;
+      // Sichere-Zone (gestrichelt, Rot bei Hit-Fx)
       ctx.fillStyle = hfx>0 ? "rgba(255,80,80,.18)" : "rgba(80,200,255,.12)";
       ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.fill();
       ctx.strokeStyle = hfx>0 ? "rgba(255,120,120,.7)" : "rgba(120,220,255,.55)";
       ctx.lineWidth=3;ctx.setLineDash([14,10]);
       ctx.beginPath();ctx.arc(hq.x,hq.y,R,0,7);ctx.stroke();ctx.setLineDash([]);
-      // Festungs-Mauer (innerer Steinring)
-      ctx.strokeStyle="#a89274";ctx.lineWidth=6;
-      ctx.beginPath();ctx.arc(hq.x,hq.y,R-26,0,7);ctx.stroke();
-      // 4 Verteidigungs-Tuerme (Positionen von snap.tw oder Fallback)
+      // Innenhof (Sand-Boden)
+      ctx.fillStyle="#c8b687"; ctx.beginPath();ctx.arc(hq.x,hq.y,wallIn,0,7);ctx.fill();
+      // Burgmauer: dicker Stein-Ring
+      ctx.lineWidth = wallThick; ctx.strokeStyle = "#8e7e63";
+      ctx.beginPath();ctx.arc(hq.x,hq.y,(wallOut+wallIn)/2,0,7);ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(0,0,0,.18)";
+      ctx.beginPath();ctx.arc(hq.x,hq.y,wallIn,0,7);ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = "#5a4a35";
+      ctx.beginPath();ctx.arc(hq.x,hq.y,wallOut,0,7);ctx.stroke();
+      // Zinnen rundherum (24 kleine Steine auf der Mauerkrone)
+      const Zn = 24;
+      for(let i=0;i<Zn;i++){
+        const ang = (i/Zn)*Math.PI*2;
+        const cx = hq.x + Math.cos(ang)*wallOut, cy = hq.y + Math.sin(ang)*wallOut;
+        ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang + Math.PI/2);
+        ctx.fillStyle = "#8e7e63"; ctx.fillRect(-5, -5, 10, 5);
+        ctx.restore();
+      }
+      // Tor am Sueden (Bogen + dunkler Durchgang)
+      ctx.save(); ctx.translate(hq.x, hq.y + wallOut);
+      ctx.fillStyle = "#3a2818"; ctx.fillRect(-14, -wallThick-2, 28, wallThick+4);
+      ctx.fillStyle = "#caa37a";
+      ctx.beginPath(); ctx.arc(0, -wallThick-2, 14, Math.PI, 0); ctx.fill();
+      ctx.restore();
+      // 4 Verteidigungs-Tuerme (Position aus snap.tw oder Fallback) — Hoehe waechst mit tLv
       const towers = (snap.tw && snap.tw.length) ? snap.tw : [
         { x: hq.x-100, y: hq.y-70 }, { x: hq.x+100, y: hq.y-70 },
         { x: hq.x-100, y: hq.y+70 }, { x: hq.x+100, y: hq.y+70 },
       ];
-      const tLv = snap.hq ? (snap.hq.tLv||0) : 0;
       for(const tw of towers){
-        ctx.fillStyle="#6b5e4a"; ctx.beginPath(); ctx.arc(tw.x,tw.y,12,0,7); ctx.fill();   // Sockel
-        ctx.fillStyle="#3a3026"; ctx.fillRect(tw.x-2, tw.y-22, 4, 14);                    // Lauf
-        ctx.fillStyle="#caa37a"; ctx.fillRect(tw.x-6, tw.y-26, 12, 6);                    // Aufbau
-        // Stufen-Punkte ueber dem Turm (1..3 -> goldene Sterne)
+        const towerH = 30 + tLv*8;                  // Tuerme wachsen mit Upgrade
+        const baseR = 14 + tLv*2;
+        ctx.fillStyle="rgba(0,0,0,.22)";
+        ctx.beginPath();ctx.ellipse(tw.x, tw.y+baseR-2, baseR, baseR*0.35, 0, 0, 7);ctx.fill();
+        ctx.fillStyle="#8e7e63"; ctx.beginPath(); ctx.arc(tw.x, tw.y, baseR, 0, 7); ctx.fill();
+        ctx.fillStyle="#a89274"; ctx.fillRect(tw.x-baseR+2, tw.y-towerH, (baseR-2)*2, towerH);
+        // Mini-Zinnen am Turmkopf
+        for(let i=-1;i<=1;i++){
+          ctx.fillStyle="#a89274"; ctx.fillRect(tw.x-9+i*7, tw.y-towerH-6, 5, 6);
+        }
+        // Dach (Spitzkegel) — Farbe je nach Stufe
+        const roof = tLv >= 3 ? "#ffd34d" : tLv >= 2 ? "#e8a93a" : tLv >= 1 ? "#9c3b2e" : "#5c3417";
+        ctx.fillStyle = roof;
+        ctx.beginPath();
+        ctx.moveTo(tw.x-baseR+2, tw.y-towerH-6);
+        ctx.lineTo(tw.x+baseR-2, tw.y-towerH-6);
+        ctx.lineTo(tw.x, tw.y-towerH-6-(12+tLv*4));
+        ctx.closePath(); ctx.fill();
+        // Goldene Sterne ueber dem Turm (1..3) als Upgrade-Anzeige
         for(let i=0;i<tLv;i++){
           ctx.fillStyle="#ffd34d"; ctx.beginPath();
-          ctx.arc(tw.x-6+i*6, tw.y-32, 2.5, 0, 7); ctx.fill();
+          ctx.arc(tw.x-6+i*6, tw.y-towerH-14-tLv*4, 2.5, 0, 7); ctx.fill();
         }
       }
-      // HP-Balken oben mittig ueber dem HQ
+      // Banner/Fahne in der Mitte — Farbe verraet hpLvl-Stufe (Bronze->Silber->Gold)
+      const bannerCol = hLv >= 3 ? "#ffd34d" : hLv >= 2 ? "#cfd6dd" : hLv >= 1 ? "#caa37a" : "#7ad0ff";
+      ctx.fillStyle = "#3a2818"; ctx.fillRect(hq.x-2, hq.y-46, 4, 46);
+      ctx.fillStyle = bannerCol; ctx.beginPath();
+      ctx.moveTo(hq.x+2, hq.y-46); ctx.lineTo(hq.x+24, hq.y-40); ctx.lineTo(hq.x+2, hq.y-34);
+      ctx.closePath(); ctx.fill();
+      // HP-Balken + Label oben
       const bw=120, bx=hq.x-bw/2, by=hq.y-R-6;
       ctx.fillStyle="rgba(0,0,0,.5)"; ctx.fillRect(bx-2,by-2,bw+4,12);
       ctx.fillStyle = hp/mh > 0.4 ? "#5fc46b" : hp/mh > 0.2 ? "#e8a93a" : "#e74c3c";
       ctx.fillRect(bx,by,bw*(hp/mh),8);
       ctx.fillStyle="#fff"; ctx.font="bold 12px Trebuchet MS"; ctx.textAlign="center";
-      ctx.fillText("🏰 Basis  "+hp+"/"+mh+" ❤", hq.x, by-4);
+      ctx.fillText("🏰 Burg  "+hp+"/"+mh+" ❤", hq.x, by-4);
       ctx.font="bold 16px Trebuchet MS";
       ctx.fillStyle = hp <= 0 ? "rgba(255,120,120,.95)" : "rgba(120,220,255,.85)";
-      ctx.fillText(hp <= 0 ? "💥 HQ zerstoert — Admin: Neu starten" : "🏰 Basis (sicher)", hq.x, hq.y-R+22);
+      ctx.fillText(hp <= 0 ? "💥 Burg zerstoert" : "🏰 Sichere Zone", hq.x, hq.y-R+22);
       ctx.textAlign="left";
     }
     for(const is of statics.islands){
