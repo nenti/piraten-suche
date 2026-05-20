@@ -136,7 +136,7 @@ function closeClient(c) {
 }
 
 // ================= SPIELWELT (autoritativ) =================
-const WORLD_W = 3600, WORLD_H = 1100;
+const WORLD_W = 5400, WORLD_H = 1100;             // Phase 3: viel weiter Richtung Meer (3600 -> 5400, Janik-Wunsch)
 const SEA_BOT = 260, SAND_BOT = 380;
 const HQ = { x: 700, y: 430 };                    // Headquarter / Spawn-Basis (sicher)
 function hqR() { return 110 + world.level * 30; }  // wächst pro Level
@@ -167,7 +167,7 @@ const islands = [
   { x: 1500, y: 40,  w: 240, h: 130 },
   { x: 2700, y: 70,  w: 220, h: 150 },
   { x: 820,  y: 30,  w: 180, h: 100 },
-  { x: 2620, y: 6,   w: 760, h: 238, king: true },   // groß & weit draußen
+  { x: 4200, y: 6,   w: 760, h: 238, king: true },   // groß & noch weiter draußen (Phase 3: Bossinsel Richtung Meer geschoben)
 ];
 const BIGISLAND = islands[3];
 const HARBOR = { x: 360, y: SEA_BOT - 60, w: 220, h: 50 };   // U-Boot-Hafen (Level 3)
@@ -568,6 +568,12 @@ function tick() {
       continue;
     }
     if (p.inv > 0) p.inv--;
+    // Flugzeug-Reparatur am HQ: wer im Flugzeug ueber der sicheren Zone hovert,
+    // dessen Maschine flickt sich langsam (~1 HP / 1.5s @ 20Hz)
+    if (p.plane && p.plane.hp < p.plane.maxhp && inHQ(p.x, p.y)) {
+      p.plane.repCd = (p.plane.repCd || 0) - 1;
+      if (p.plane.repCd <= 0) { p.plane.hp++; p.plane.repCd = 30; }
+    }
     const dx = p.in.dx, dy = p.in.dy;
     if (dx || dy) {
       const l = dist(dx, dy) || 1;

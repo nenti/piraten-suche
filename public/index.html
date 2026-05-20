@@ -557,12 +557,26 @@ function draw(){
     if(bu.r){ctx.fillStyle="#6f4bd6";for(const o of[[-5,-2],[5,0],[0,5],[-8,5],[8,6]]){ctx.beginPath();ctx.arc(bu.x+o[0],bu.y+o[1],3,0,7);ctx.fill();}}
   }
   // gedroppte Schippen (von abgeschossenen Monstern)
+  // Schippen-Cluster: nahe beieinander liegende Pickups in ein Sprite zusammenfassen
+  // ("×N"-Badge), sonst sieht's chaotisch aus wenn viele Land-Monster zerschossen sind.
+  const _pkCell = 36, _pks = {};
   for(const pk of snap.pk){
     if(!onScr(pk.x,pk.y,30)) continue;
+    const key = Math.round(pk.x/_pkCell)+":"+Math.round(pk.y/_pkCell);
+    let c = _pks[key]; if(!c) c = _pks[key] = { sx:0, sy:0, n:0 };
+    c.sx += pk.x; c.sy += pk.y; c.n++;
+  }
+  for(const k in _pks){
+    const c = _pks[k], cx = c.sx/c.n, cy = c.sy/c.n;
     ctx.fillStyle="rgba(255,235,140,"+(0.18+0.14*Math.sin(t*0.2))+")";
-    ctx.beginPath();ctx.arc(pk.x,pk.y,16,0,7);ctx.fill();
-    ctx.fillStyle="#6b3f1d";ctx.fillRect(pk.x-1,pk.y-2,3,12);
-    ctx.fillStyle="#cfd6dd";rr(pk.x-6,pk.y-10,12,9,2);
+    ctx.beginPath();ctx.arc(cx,cy,16,0,7);ctx.fill();
+    ctx.fillStyle="#6b3f1d";ctx.fillRect(cx-1,cy-2,3,12);
+    ctx.fillStyle="#cfd6dd";rr(cx-6,cy-10,12,9,2);
+    if(c.n > 1){
+      ctx.fillStyle="rgba(0,0,0,.75)"; ctx.beginPath(); ctx.arc(cx+12,cy-12,9,0,7); ctx.fill();
+      ctx.fillStyle="#ffe24d"; ctx.font="bold 12px Trebuchet MS"; ctx.textAlign="center";
+      ctx.fillText("×"+c.n, cx+12, cy-8); ctx.textAlign="left";
+    }
   }
   // Eiswagen
   const tk=ITK;
