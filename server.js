@@ -253,7 +253,7 @@ const world = {
 };
 for (let i = 0; i < 10; i++)
   world.bushes.push({ x: rnd(500, WORLD_W-200), y: rnd(SAND_BOT+60, WORLD_H-70), ripe: true, regrow: 0 });
-for (let i = 0; i < 9; i++) spawnMonster();
+for (let i = 0; i < 6; i++) spawnMonster();
 
 function spawnMonster(type, x, y) {
   if (!type) {
@@ -310,9 +310,18 @@ function onMessage(c, m) {
   if (m.t === "exit") exitVehicle(p);
   if (m.t === "restart" && c.player === world.adminId) resetWorld();
   if (m.t === "buy" && nearShop(p.x, p.y)) {
+    // Knarre & Flugzeug-Upgrade wahlweise mit Schippen (2x Muenz-Preis,
+    // passt zur Ranch-Rate 5🪚→3🪙). Schippen-Stack bleibt Muenz-only.
+    const ws = m.pay === "shovels";
     if (m.item === "shovel" && p.coins >= 3) { p.coins -= 3; p.shovels += 3; }
-    else if (m.item === "gun" && !p.gun && p.coins >= 12) { p.coins -= 12; p.gun = true; }
-    else if (m.item === "planeup" && p.planeLvl < 3 && p.coins >= 15) { p.coins -= 15; p.planeLvl++; }
+    else if (m.item === "gun" && !p.gun) {
+      if (ws && p.shovels >= 24)     { p.shovels -= 24; p.gun = true; }
+      else if (!ws && p.coins >= 12) { p.coins -= 12;   p.gun = true; }
+    }
+    else if (m.item === "planeup" && p.planeLvl < 3) {
+      if (ws && p.shovels >= 30)     { p.shovels -= 30; p.planeLvl++; }
+      else if (!ws && p.coins >= 15) { p.coins -= 15;   p.planeLvl++; }
+    }
   }
   if (m.t === "ranch" && nearRanch(p.x, p.y)) {
     if (m.item === "horse" && !p.horse && p.shovels >= HORSE_COST) {
@@ -360,14 +369,18 @@ function doAction(p) {
     if (o !== p && o.down > 0 && dist(o.x-p.x, o.y-p.y) < 50) {
       o.down = 0; o.hearts = 2; o.inv = 120; return;
     }
-  // 2. Eis am Eiswagen (auch aus dem Fahrzeug!) -> heilen
-  if (dist(world.truck.x-p.x, world.truck.y-p.y) < 60 && p.hearts < 3 && p.coins >= 2) {
+  // 2. Eis am Eiswagen (auch aus dem Fahrzeug!) — immer kaufbar fuer 2🪙;
+  //    bei vollem Herz heilt es eben nicht, aber die Aktion geht durch.
+  if (dist(world.truck.x-p.x, world.truck.y-p.y) < 60 && p.coins >= 2) {
     p.coins -= 2; p.hearts = Math.min(3, p.hearts + 2); p.fx = "ice"; return;
   }
-  // 3. Beere essen
+  // 3. Beere essen (auch bei vollem Herz pflueckbar — bringt dann halt nix,
+  //    kein Sperren der Aktion fuer Janik)
   for (const bu of world.bushes)
-    if (bu.ripe && p.hearts < 3 && dist(bu.x-p.x, bu.y-p.y) < 40) {
-      bu.ripe = false; bu.regrow = 600; p.hearts++; return;
+    if (bu.ripe && dist(bu.x-p.x, bu.y-p.y) < 40) {
+      bu.ripe = false; bu.regrow = 600;
+      if (p.hearts < 3) p.hearts++;
+      return;
     }
   // 4. Graben — NUR direkt über einem ungefundenen Schatz
   if (p.shovels > 0) {
@@ -402,8 +415,8 @@ function doAction(p) {
   // 6. Schießen (manuell) — im Fahrzeug oder mit Knarre zu Fuß
   if (tryShoot(p)) return;
   if (nearShop(p.x, p.y) || nearRanch(p.x, p.y)) return;   // Menüs erledigen das
-  // 8. Schaufel werfen (Erst-Verteidigung) — sonst Monster verscheuchen
-  if (throwShovel(p)) return;
+  // Monster verscheuchen (Schaufel-Werfen entfernt — Janik verbrauchte
+  // sonst unabsichtlich seine Schippen)
   for (const a of world.monsters) {
     const k = dist(a.x-p.x, a.y-p.y);
     if (k < 120 && a.type !== "brocken" && a.type !== "koenig") {
@@ -445,8 +458,8 @@ function goDown(p, hq) {
     for (const v of arr) { if (v.driver === p) v.driver = null; if (v.passenger === p) v.passenger = null; }
   p.boat = p.car = p.plane = p.sub = null;
   p.mounted = false;
-  p.hearts = 0; p.down = 600; p.inv = 0;
-  if (hq) p.hqResp = true;
+  p.hearts = 0; p.down = 1200; p.inv = 0;   // 60s Respawn-Timer (20Hz × 60)
+  p.hqResp = true;                          // immer am HQ (Startpunkt) aufwachen
 }
 // Fahrzeug zerstört: Insassen werden ohnmächtig, Fahrzeug respawnt an seiner Basis
 function destroyVehicle(v, kind, arr) {
@@ -471,21 +484,21 @@ function winSequence() {
         const px = AIRPORT.x + 70 + i*150, py = AIRPORT.y + AIRPORT.h/2;
         world.planes.push({ x: px, y: py, dir: 1, driver: null, hp: 6, maxhp: 6, ic: 0, dmg: 0, base: { x: px, y: py } });
       }
-      for (let i = 0; i < 6; i++) spawnMonster();   // Level 2: mehr & crazier
+      for (let i = 0; i < 4; i++) spawnMonster();   // Level 2: ein paar mehr (–2 zur Beruhigung)
     } else if (next === 3) {
       world.level = 3;
       for (let i = 0; i < 3; i++) {                // U-Boote im Hafen
         const sx = HARBOR.x + 50 + i*70, sy = HARBOR.y + HARBOR.h/2;
         world.subs.push({ x: sx, y: sy, dir: 1, driver: null, hp: 7, maxhp: 7, ic: 0, dmg: 0, base: { x: sx, y: sy } });
       }
-      for (let i = 0; i < 7; i++) spawnMonster("oktopus");          // Oktopusse im Meer
-      for (let i = 0; i < 6; i++)                                   // Kannibalen auf der Königsinsel
+      for (let i = 0; i < 5; i++) spawnMonster("oktopus");          // Oktopusse im Meer (–2)
+      for (let i = 0; i < 4; i++)                                   // Kannibalen auf der Königsinsel (–2)
         spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);  // König-Boss
     } else if (next === 4) {
       world.level = 4;                                               // crazier: 2. König + mehr
-      for (let i = 0; i < 8; i++) spawnMonster("oktopus");
-      for (let i = 0; i < 8; i++)
+      for (let i = 0; i < 6; i++) spawnMonster("oktopus");          // Level 4 (–2)
+      for (let i = 0; i < 6; i++)                                   // (–2)
         spawnMonster("kannibale", BIGISLAND.x + rnd(40, BIGISLAND.w-40), BIGISLAND.y + rnd(40, BIGISLAND.h-30));
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w*0.3, BIGISLAND.y + BIGISLAND.h/2);
       spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w*0.7, BIGISLAND.y + BIGISLAND.h/2);
@@ -532,7 +545,7 @@ function resetWorld() {
     world.boats.push({ x:bx, y:by, driver:null, hp:6, maxhp:6, ic:0, dmg:0, base:{x:bx,y:by} }); }
   for (let i = 0; i < 4; i++) { const cx=PARK.x+24+i*34, cy=PARK.y+40;
     world.cars.push({ x:cx, y:cy, dir:1, driver:null, passenger:null, hp:8, maxhp:8, ic:0, dmg:0, mdl:i, base:{x:cx,y:cy} }); }
-  for (let i = 0; i < 9; i++) spawnMonster();
+  for (let i = 0; i < 6; i++) spawnMonster();
   for (const p of Object.values(world.players)) {
     p.boat=p.car=p.plane=p.sub=p.horse=null; p.mounted=false;
     p.hearts=3; p.down=0; p.inv=120; p.coins=0; p.shovels=5; p.shovelLvl=1;
@@ -625,8 +638,8 @@ function tick() {
         if (inHQ(p.x, p.y)) continue;                 // Headquarter ist sicher
         if (a.sea) {                                  // Oktopus: Spieler im/am Wasser (auch Boot/U-Boot)
           if (!(p.boat || p.sub || p.y < SEA_BOT + 50)) continue;
-        } else {                                      // Landmonster: auch Autos & Pferd-Reiter angreifbar; nur Flugzeug fliegt
-          if (p.plane) continue;
+        } else {                                      // Landmonster: Autos & Pferd-Reiter angreifbar; Flatterer kommen auch ans Flugzeug ran
+          if (p.plane && a.type !== "flatterer") continue;
         }
         const d = dist(p.x-a.x, p.y-a.y); if (d < td) { td = d; tgt = p; }
       }
@@ -692,7 +705,11 @@ function tick() {
     }
     if (a.pop > 0) a.pop--;
     // König wehrt sich: wirft regelmäßig Speere (trifft Spieler UND Fahrzeuge)
-    if (a.type === "koenig") {
+    // Koenig + Kannibalen werfen Speere; Kannibalen mit kuerzerer Reichweite & langsamer
+    if (a.type === "koenig" || a.type === "kannibale") {
+      const isKing = a.type === "koenig";
+      const range  = isKing ? 640 : 380;
+      const speed  = isKing ? 7   : 6;
       a.spearCd = (a.spearCd || 0) - 1;
       if (a.spearCd <= 0) {
         let st = null, sd = 1e9;
@@ -700,11 +717,11 @@ function tick() {
           if (p.down > 0 || inHQ(p.x, p.y)) continue;
           const d = dist(p.x-a.x, p.y-a.y); if (d < sd) { sd = d; st = p; }
         }
-        if (st && sd < 640) {
+        if (st && sd < range) {
           const k = sd || 1;
-          world.spears.push({ x: a.x, y: a.y-20, vx: (st.x-a.x)/k*7, vy: (st.y-a.y)/k*7, life: 95 });
-          a.spearCd = 40;
-        } else a.spearCd = 18;
+          world.spears.push({ x: a.x, y: a.y-20, vx: (st.x-a.x)/k*speed, vy: (st.y-a.y)/k*speed, life: 95 });
+          a.spearCd = isKing ? 40 : 75;       // Kannibalen werfen seltener
+        } else a.spearCd = isKing ? 18 : 35;
       }
     }
   }
@@ -751,7 +768,7 @@ function tick() {
             world.kingDown = 600;
             for (const pp of Object.values(world.players)) pp.coins += 25;
             world.monsters.splice(j, 1);
-            setTimeout(() => spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2), 9000);
+            setTimeout(() => spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2), 3000);
           } else if (a.sea) {                         // Oktopus -> Münzen (im Meer)
             let np = null, nd = 1e9;
             for (const pp of Object.values(world.players)) {
@@ -796,6 +813,13 @@ function tick() {
   }
 
   // Monsterwellen — kommen regelmäßig, werden pro Level stärker
+  // Sicherheitsnetz: ab Level 3 muss immer mindestens ein Koenig auf der Insel sein
+  // (Janik wartet sonst rum). Springt nicht waehrend der "Erobert!"-Phase ein.
+  if (world.level >= 3 && world.kingDown <= 0) {
+    let hasKing = false;
+    for (const a of world.monsters) if (a.type === "koenig") { hasKing = true; break; }
+    if (!hasKing) spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);
+  }
   if (world.wave > 0) world.wave--;
   if (Object.keys(world.players).length > 0 && --world.waveCd <= 0) {
     const n = 2 + world.level + Math.floor(Math.random()*2);
@@ -824,7 +848,7 @@ function broadcast() {
       sl: p.shovelLvl, gn: p.gun, plv: p.planeLvl, bo: !!p.boat, ca: !!p.car, pn: !!p.plane, su: !!p.sub,
       mo: p.mounted,
       ho: p.horse ? { x: Math.round(p.horse.x), y: Math.round(p.horse.y), d: p.horse.dir } : null,
-      dn: p.down > 0, iv: p.inv > 0, fx: p.fx || null,
+      dn: p.down, iv: p.inv > 0, fx: p.fx || null,   // dn = verbleibende Ticks (Client zeigt 60s-Countdown)
     })),
     won: world.won, goal: WIN_GOAL, level: world.level, kingDown: world.kingDown > 0,
     admin: world.adminId, wave: world.wave > 0,
