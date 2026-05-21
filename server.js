@@ -939,7 +939,7 @@ function tick() {
         hit = true; break;
       }
     }
-    if (hit || s.life <= 0 || s.x<0||s.x>WORLD_W||s.y<0||s.y>WORLD_H) world.spears.splice(i, 1);
+    if (hit || s.life <= 0 || s.x<0||s.x>WORLD_W||s.y<world.yMin||s.y>WORLD_H) world.spears.splice(i, 1);
   }
 
   // Schatz-Fund-Effekt herunterzählen
@@ -1002,7 +1002,7 @@ function tick() {
         break;
       }
     }
-    if (hit || b.life <= 0 || b.x<0||b.x>WORLD_W||b.y<0||b.y>WORLD_H)
+    if (hit || b.life <= 0 || b.x<0||b.x>WORLD_W||b.y<world.yMin||b.y>WORLD_H)
       world.bolts.splice(i, 1);
   }
 
