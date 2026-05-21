@@ -713,6 +713,45 @@ function draw(){
         // Schild
         ctx.fillStyle="#ffd34d";ctx.font="bold 20px Trebuchet MS";ctx.textAlign="center";
         ctx.fillText("🌈 Phantasie-Insel", is.x+is.w/2, is.y-12);ctx.textAlign="left";
+      } else if(is.mainland){
+        // Fernes Festland mit Gebirge (Phase 3d) — eigenes Biom, kuehleres Gruen
+        ctx.fillStyle="#d8c89a"; rr(is.x,is.y,is.w,is.h,50);                // heller Strand
+        ctx.fillStyle="#5a8a52"; rr(is.x+30,is.y+24,is.w-60,is.h-54,34);    // kuehles Gras
+        const peaks = [
+          { x: is.x+is.w*0.16, h: 130 }, { x: is.x+is.w*0.34, h: 185 },
+          { x: is.x+is.w*0.52, h: 230 }, { x: is.x+is.w*0.70, h: 170 },
+          { x: is.x+is.w*0.86, h: 115 },
+        ];
+        const baseY = is.y + is.h*0.66;
+        for(const pk of peaks){
+          ctx.fillStyle="#7a7266";                                          // Berg-Koerper
+          ctx.beginPath();
+          ctx.moveTo(pk.x - pk.h*0.62, baseY);
+          ctx.lineTo(pk.x, baseY - pk.h);
+          ctx.lineTo(pk.x + pk.h*0.62, baseY);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle="#5e574d";                                          // Schatten-Seite
+          ctx.beginPath();
+          ctx.moveTo(pk.x, baseY - pk.h);
+          ctx.lineTo(pk.x + pk.h*0.62, baseY);
+          ctx.lineTo(pk.x, baseY);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle="#f4f8ff";                                          // Schneekappe
+          ctx.beginPath();
+          ctx.moveTo(pk.x - pk.h*0.20, baseY - pk.h*0.68);
+          ctx.lineTo(pk.x, baseY - pk.h);
+          ctx.lineTo(pk.x + pk.h*0.20, baseY - pk.h*0.68);
+          ctx.closePath(); ctx.fill();
+        }
+        for(let i=0;i<6;i++){                                               // Tannen am Fuss
+          const rx = is.x + 70 + (i*180) % (is.w-140);
+          const ry = is.y + is.h - 38 - ((i*53)%26);
+          ctx.fillStyle="#2f5a3a";
+          ctx.beginPath();ctx.moveTo(rx,ry-26);ctx.lineTo(rx-12,ry);ctx.lineTo(rx+12,ry);ctx.closePath();ctx.fill();
+          ctx.fillStyle="#6b3f1d";ctx.fillRect(rx-2,ry,4,8);
+        }
+        ctx.fillStyle="#cdd6df";ctx.font="bold 22px Trebuchet MS";ctx.textAlign="center";
+        ctx.fillText("⛰️ Fernes Festland", is.x+is.w/2, is.y-14);ctx.textAlign="left";
       } else {
         ctx.fillStyle="#e7d49b";rr(is.x,is.y,is.w,is.h,40);
         ctx.fillStyle="#3a8a55";rr(is.x+30,is.y+18,is.w-60,is.h-42,28);
@@ -778,6 +817,20 @@ function draw(){
         for(let j=0;j<3;j++){
           ctx.beginPath();ctx.arc(vx+(j%2?6:-6), colY0-20+j*14, 5, 0, 7);ctx.fill();
         }
+      }
+      // Schatztruhe im Tempel-Eingang (golden gluehend wenn bereit, sonst leer-offen)
+      const chx = cxt, chy = tp.y + tp.h - 34;
+      if(snap.tcReady !== false){
+        ctx.fillStyle="rgba(255,215,80,"+(0.22+0.18*Math.sin(t*0.2))+")";   // Gold-Glow
+        ctx.beginPath();ctx.arc(chx,chy,26,0,7);ctx.fill();
+        ctx.fillStyle="#8a5a2a"; rr(chx-16,chy-10,32,20,3);                 // Truhe
+        ctx.fillStyle="#ffd34d"; rr(chx-16,chy-10,32,7,3);                  // goldener Deckel
+        ctx.fillStyle="#c98a3a"; ctx.fillRect(chx-3,chy-10,6,20);           // Beschlag
+        ctx.fillStyle="#5c3417"; ctx.fillRect(chx-2,chy-1,4,4);             // Schloss
+      } else {
+        ctx.fillStyle="#6b4a2a"; rr(chx-16,chy-2,32,12,3);                  // geleerte Truhe
+        ctx.fillStyle="#3a2a1a"; rr(chx-13,chy-1,26,7,2);                   // leeres Inneres
+        ctx.fillStyle="#6b4a2a"; rr(chx-16,chy-17,32,7,3);                  // aufgeklappter Deckel
       }
       // Label
       ctx.fillStyle="#caa37a"; ctx.font="bold 15px Trebuchet MS"; ctx.textAlign="center";

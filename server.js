@@ -168,13 +168,15 @@ const islands = [
   { x: 1500, y: 40,   w: 240, h: 130 },
   { x: 2700, y: 70,   w: 220, h: 150 },
   { x: 820,  y: 30,   w: 180, h: 100 },
-  { x: 4500, y: 6,    w: 760, h: 238, king: true },     // Königsinsel — noch weiter raus (Phase 3d)
-  { x: 3500, y: 60,   w: 180, h: 110 },                 // NEU: Mittel-Insel auf dem Weg zur Königsinsel
-  { x: 3950, y: 20,   w: 150, h: 90  },                 // NEU: weitere kleine Insel
-  { x: 2100, y: -560, w: 500, h: 320, fantasy: true },  // NEU: grosse Phantasie-Insel im offenen Nord-Meer (nur L3+ erreichbar)
+  { x: 4500, y: -180, w: 760, h: 238, king: true },     // Königsinsel — weiter raus ins Meer (Phase 3d)
+  { x: 3500, y: 60,   w: 180, h: 110 },                 // Mittel-Insel auf dem Weg zur Königsinsel
+  { x: 3950, y: 20,   w: 150, h: 90  },                 // weitere kleine Insel
+  { x: 2100, y: -560, w: 500, h: 320, fantasy: true },  // grosse Phantasie-Insel im offenen Nord-Meer (L3+)
+  { x: 4250, y: -700, w: 1100, h: 360, mainland: true },// NEU: fernes Festland mit Gebirge, oben rechts (L3+)
 ];
 const BIGISLAND = islands[3];
 const FANTASYISLAND = islands[6];
+const MAINLAND = islands[7];
 // Geheime Hoehle am Suedrand der Phantasie-Insel, genau hinter dem Regenbogen-
 // Wasserfall (Wasserfall startet bei is.y+h-6 = -246; Cave reicht bis y=-250).
 // Risk/Reward: normale Monster drin, droppen doppelt, bleiben in der Hoehle geclamped.
@@ -196,9 +198,9 @@ const trees = [
   { x: 4300, y: 880 }, { x: 4600, y: 500 }, { x: 4750, y: 760 },
   { x: 4950, y: 620 }, { x: 5150, y: 880 }, { x: 5250, y: 500 },
 ];
-// Tempel-Ruine: ein kleines geheimnisvolles Gebaeude in der rechten Wildnis,
-// nur sichtbar/erreichbar wenn das Land ab Level 2/3 aufgeht. Lockt Erkunder.
-const TEMPLE = { x: 4400, y: 660, w: 220, h: 150 };
+// Tempel-Ruine in der rechten Wildnis. x=4000 statt 4400, damit sie schon
+// bei Level 2 (WORLD_W=4500) komplett ins Bild passt und nicht abgeschnitten ist.
+const TEMPLE = { x: 4000, y: 660, w: 220, h: 150 };
 
 function freshTreasures() {
   // Nicht immer am gleichen Platz: zufällig verteilt, aber fair erreichbar.
@@ -261,6 +263,7 @@ const world = {
   pickups: [],                                     // gedroppte Schippen + Muenzen (kind "s" / "c")
   hq: { hp: 30, maxhp: 30, hitFx: 0, dmgCd: 0, deadTimer: 0, towerLvl: 0, hpLvl: 0 },   // HQ hat Leben + Ausbau + Game-Over-Timer (Phase 3)
   yMin: 0,                                          // Welt-Top: pro Level negativ -> Meer oeffnet sich nach Norden
+  templeChest: { cd: 0 },                           // Tempel-Schatz: Bonus fuer Erkunder, dann Cooldown
   towers: [                                        // 4 Verteidigungs-Tuerme um HQ herum
     { x: HQ.x - 100, y: HQ.y - 70, cd: 0 },
     { x: HQ.x + 100, y: HQ.y - 70, cd: 0 },
@@ -298,8 +301,10 @@ function spawnMonster(type, x, y, opts) {
     x, y, vx: 0, vy: 0, type, hp: m.hp, maxhp: m.hp, r: m.r, sea: !!m.sea,
     friendly: !!m.friendly,
     cave: !!opts.cave,                                   // Phantasie-Hoehle: drin bleiben, doppelter Loot
-    island: type === "koenig" || type === "kannibale" || !!m.friendly || !!opts.cave,
-    fantasyIsland: !!m.friendly,
+    mainlandMon: !!opts.mainland,                        // Festland-Waechter: bleiben auf dem fernen Festland
+    island: type === "koenig" || type === "kannibale" || !!m.friendly || !!opts.cave || !!opts.mainland,
+    fantasyIsland: !!m.friendly && !opts.bigIsland,       // nette Wesen: normal auf FANTASYISLAND...
+    celebPet: !!opts.bigIsland,                          // ...ausser Feier-Wesen die auf der Koenigsinsel feiern
     flee: 0, mad: 0, pop: 0, wob: Math.random()*7,
     cd: 0,                                              // Nette: Geschenk-Cooldown
   });
@@ -562,6 +567,14 @@ function winSequence() {
           rnd(CAVE_FANTASY.y+20, CAVE_FANTASY.y+CAVE_FANTASY.h-20),
           { cave: true });
       }
+      // Waechter auf dem fernen Festland (oben rechts) — einmal raeumen, dann frei erkundbar
+      for (let i = 0; i < 4; i++) {
+        const tp = ["schleicher","flatterer","brocken"][Math.floor(Math.random()*3)];
+        spawnMonster(tp,
+          rnd(MAINLAND.x+70, MAINLAND.x+MAINLAND.w-70),
+          rnd(MAINLAND.y+70, MAINLAND.y+MAINLAND.h-70),
+          { mainland: true });
+      }
     } else if (next === 4) {
       world.level = 4;                                               // crazier: 2. König + mehr
       for (let i = 0; i < 6; i++) spawnMonster("oktopus");          // Level 4 (–2)
@@ -579,13 +592,19 @@ function winSequence() {
 function fireBolt(p, maxRange = 560) {
   let tgt = null, bd = 1e9;
   for (const a of world.monsters) {
+    if (a.friendly) continue;                         // nette Wesen nicht anvisieren
     const d = dist(a.x-p.x, a.y-p.y);
     if (d < bd) { bd = d; tgt = a; }
   }
-  if (!tgt || bd > maxRange) return;
-  const k = bd || 1;
-  const dmg = p.plane ? 1 + (p.planeLvl||0) : 1 + (p.gunPower||0);   // Flugzeug-Upgrade ODER Knarren-Upgrade (Phantasie-Land)
-  world.bolts.push({ x: p.x, y: p.y-6, vx: (tgt.x-p.x)/k*9, vy: (tgt.y-p.y)/k*9, life: 80, dmg });
+  const dmg = p.plane ? 1 + (p.planeLvl||0) : 1 + (p.gunPower||0);   // Flugzeug- ODER Knarren-Upgrade
+  let vx, vy;
+  if (tgt && bd <= maxRange) {                        // Auto-Aim auf naechstes Monster
+    const k = bd || 1;
+    vx = (tgt.x-p.x)/k*9; vy = (tgt.y-p.y)/k*9;
+  } else {                                            // kein Ziel -> trotzdem in Blickrichtung schiessen
+    vx = (p.dir || 1) * 9; vy = 0;
+  }
+  world.bolts.push({ x: p.x, y: p.y-6, vx, vy, life: 80, dmg });
 }
 // Schaufel werfen — Erst-Verteidigung zu Fuß (kostet 1 Schippe)
 function throwShovel(p) {
@@ -613,6 +632,7 @@ function resetWorld() {
   world.hq.maxhp = 30; world.hq.hp = 30; world.hq.hitFx = 0; world.hq.dmgCd = 0;
   world.hq.deadTimer = 0; world.hq.towerLvl = 0; world.hq.hpLvl = 0;       // Ausbau-Reset bei neuer Runde
   for (const tw of world.towers) tw.cd = 0;
+  world.templeChest.cd = 0;
   for (let i = 0; i < 4; i++) { const bx=620+i*150, by=SEA_BOT-55;
     world.boats.push({ x:bx, y:by, driver:null, hp:6, maxhp:6, ic:0, dmg:0, base:{x:bx,y:by} }); }
   for (let i = 0; i < 4; i++) { const cx=PARK.x+24+i*34, cy=PARK.y+40;
@@ -793,7 +813,7 @@ function tick() {
       }
     }
     if (a.island) {                                   // König/Kannibalen auf BIGISLAND; nette auf FANTASYISLAND; cave-Monster in CAVE_FANTASY
-      const isl = a.cave ? CAVE_FANTASY : (a.fantasyIsland ? FANTASYISLAND : BIGISLAND);
+      const isl = a.cave ? CAVE_FANTASY : a.mainlandMon ? MAINLAND : (a.fantasyIsland ? FANTASYISLAND : BIGISLAND);
       const ix0 = isl.x+16, ix1 = isl.x+isl.w-16;
       const iy0 = isl.y+16, iy1 = isl.y+isl.h-16;
       if (nx < ix0) { nx = ix0; a.vx = Math.abs(a.vx); }
@@ -850,6 +870,20 @@ function tick() {
         }
         a.cd = 600;                                       // 30s bis das gleiche Pet wieder schenkt
         break;                                            // pro Tick max 1 Geschenk pro Pet
+      }
+    }
+  }
+
+  // Tempel-Schatz: wer die Ruine erreicht, kriegt einen Erkunder-Bonus; dann 90s Cooldown.
+  world.templeChest.cd = Math.max(0, world.templeChest.cd - 1);
+  if (world.templeChest.cd <= 0) {
+    const tcx = TEMPLE.x + TEMPLE.w/2, tcy = TEMPLE.y + TEMPLE.h - 34;
+    for (const p of PLR) {
+      if (p.down > 0) continue;
+      if (dist(p.x-tcx, p.y-tcy) < 46) {
+        p.coins += 12; p.shovels += 6; p.fx = "nett";
+        world.templeChest.cd = 1800;                  // 90s @ 20Hz bis die Truhe wieder voll ist
+        break;
       }
     }
   }
@@ -927,11 +961,15 @@ function tick() {
         a.vx = (a.x-b.x)/k*2.0; a.vy = (a.y-b.y)/k*2.0;
         if (a.hp <= 0) {
           const at = a.type;
-          if (at === "koenig") {                      // Boss besiegt: Insel erobert! Neuer Boss kommt
-            world.kingDown = 600;
+          if (at === "koenig") {                      // Boss besiegt: Insel erobert!
+            world.kingDown = 3000;                    // 2.5 min Friedens-/Feier-Phase (vorher 30s)
             for (const pp of Object.values(world.players)) pp.coins += 25;
             world.monsters.splice(j, 1);
-            setTimeout(() => spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2), 3000);
+            // Insel wird voruebergehend zur friedlichen Phantasie-Insel: nette Wesen feiern mit.
+            // Koenig respawnt NICHT per Timer — das Tick-Safety-Net holt ihn erst nach kingDown zurueck.
+            if (!world.monsters.some(mo => mo.type === "koenig"))
+              for (let i = 0; i < 3; i++)
+                spawnMonster("nett", BIGISLAND.x + rnd(60, BIGISLAND.w-60), BIGISLAND.y + rnd(40, BIGISLAND.h-30), { bigIsland: true });
           } else if (a.sea) {                         // Oktopus -> Münzen (im Meer)
             let np = null, nd = 1e9;
             for (const pp of Object.values(world.players)) {
@@ -991,7 +1029,10 @@ function tick() {
   if (world.level >= 3 && world.kingDown <= 0) {
     let hasKing = false;
     for (const a of world.monsters) if (a.type === "koenig") { hasKing = true; break; }
-    if (!hasKing) spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);
+    if (!hasKing) {
+      world.monsters = world.monsters.filter(a => !a.celebPet);   // Feier vorbei -> nette Wesen weg
+      spawnMonster("koenig", BIGISLAND.x + BIGISLAND.w/2, BIGISLAND.y + BIGISLAND.h/2);
+    }
   }
   if (world.wave > 0) world.wave--;
   if (Object.keys(world.players).length > 0 && --world.waveCd <= 0) {
@@ -1038,6 +1079,7 @@ function broadcast() {
     tk: { x: Math.round(world.truck.x), y: world.truck.y },
     hq: { hp: world.hq.hp, mh: world.hq.maxhp, fx: world.hq.hitFx, dT: world.hq.deadTimer || 0, tLv: world.hq.towerLvl || 0, hLv: world.hq.hpLvl || 0 },
     wW: WORLD_W, yMin: world.yMin,             // Welt-Groesse mitsenden, damit Client Kamera + Sea-Gradient anpassen kann
+    tcReady: world.templeChest.cd <= 0,        // Tempel-Schatz bereit? (Client zeichnet volle vs leere Truhe)
     tw: world.towers.map(t => ({ x: t.x, y: t.y, cd: t.cd })),
   };
   for (const p of pls) p.fx = null;   // Effekt ist Einmal-Puls
